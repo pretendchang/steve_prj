@@ -58,7 +58,7 @@ public class DAO
 
         public int InsertSSO(string id, string accesskey, DateTime createtime, string returnurl, string ip, int tid)
         {
-            strSQL = @"INSERT INTO [dbo].[vrsapi_SSO]
+            strSQL = @"INSERT INTO [dbo].[api_SSO]
                       ([Id],[AccessKey],[CreateTime],[ReturnUrl],[Ip],[tid])
                  VALUES (@id,@accesskey,@createtime,@returnurl,@ip,@tid)";
 
@@ -99,7 +99,7 @@ public class DAO
 
         public int InsertSSOSession(int ssoidx, string accesstokenkey, DateTime createtime, string accesstoken)
         {
-            strSQL = @"INSERT INTO [dbo].[vrsapi_ssosession]
+            strSQL = @"INSERT INTO [dbo].[api_ssosession]
                       ([SSOidx],[AccessTokenKey],[AccessToken],[CreateTime])
                  VALUES (@ssoidx,@accesstokenkey,@accesstoken,@createtime)";
 
@@ -138,7 +138,7 @@ public class DAO
 
         public int DeleteSSO(int expiredmins)
         {
-            strSQL = @"delete [dbo].[vrsapi_sso] where GETDATE()>dateadd(mi,@expiredmins,CreateTime)";
+            strSQL = @"delete [dbo].[api_sso] where GETDATE()>dateadd(mi,@expiredmins,CreateTime)";
 
             myConnection.Open();
             SqlTransaction transaction = myConnection.BeginTransaction();
@@ -172,7 +172,7 @@ public class DAO
 
         public int DeleteSSOSession(int expiredmins)
         {
-            strSQL = @"delete [dbo].[vrsapi_ssosession] where GETDATE()>dateadd(mi,@expiredmins,CreateTime)";
+            strSQL = @"delete [dbo].[api_ssosession] where GETDATE()>dateadd(mi,@expiredmins,CreateTime)";
 
             myConnection.Open();
             SqlTransaction transaction = myConnection.BeginTransaction();
@@ -209,7 +209,7 @@ public class DAO
             SqlDataAdapter dsca = new SqlDataAdapter();
 
             strSQL = @"SELECT  *
-                      FROM [dbo].[vrsapi_sso] 
+                      FROM [dbo].[api_sso] 
                   where Id=@id";
 
             mycom = new SqlCommand(strSQL, myConnection);
@@ -227,7 +227,7 @@ public class DAO
             SqlDataAdapter dsca = new SqlDataAdapter();
 
             strSQL = @"SELECT  [ssoidx],[accesstoken]
-                      FROM [dbo].[vrsapi_ssosession] 
+                      FROM [dbo].[api_ssosession] 
                   where SSOidx=@ssoidx and 
                         AccessToken=@accesstoken and 
                        GETDATE()<=dateadd(mi,@expiredmins,CreateTime)";

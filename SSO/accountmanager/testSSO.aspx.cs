@@ -34,7 +34,7 @@ public partial class testSSO : System.Web.UI.Page
             {
                 error = true;
                 XElement err = xelm.Element("ErrorCode");
-                accesstoken = "無法取得AccessToken，發生原因" + err.Value;
+                accesstoken = "AccessToken generation error, the root cause is" + err.Value;
                 aspaccesstoken.Value = accesstoken;
             }
             else
@@ -46,12 +46,12 @@ public partial class testSSO : System.Web.UI.Page
         }
         catch (System.ServiceModel.FaultException ex)
         {
-            accesstoken = "無法取得AccessToken，發生原因" + ex.Message;
+            accesstoken = "AccessToken generation error, the root cause is" + ex.Message;
             aspaccesstoken.Value = accesstoken;
         }
         catch (Exception ex)
         {
-            accesstoken = "無法取得AccessToken，發生原因" + ex.Message;
+            accesstoken = "AccessToken generation error, the root cause is" + ex.Message;
             aspaccesstoken.Value = accesstoken;
         }
     }
