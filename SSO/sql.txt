@@ -1,0 +1,40 @@
+IF OBJECT_ID('dbo.vrsapi_sso', 'U') IS NOT NULL
+  drop table [dbo].[vrsapi_sso]
+
+CREATE TABLE [dbo].[vrsapi_sso](
+	[idx] [int] IDENTITY(1,1) NOT NULL,
+	[Id] [varchar](50) NOT NULL,
+	[AccessKey] [varchar](64) NOT NULL,
+	[CreateTime] [datetime] NOT NULL CONSTRAINT [DF_vrsapi_sso_CreateTime]  DEFAULT (getdate()),
+	[ReturnUrl] [varchar](200) NOT NULL,
+	[Ip] [varchar](30) NOT NULL,
+	[tid] [int] NOT NULL,
+ CONSTRAINT [PK_vrsapi_sso] PRIMARY KEY CLUSTERED 
+(
+	[idx] ASC
+)WITH (PAD_INDEX = OFF, STATISTICS_NORECOMPUTE = OFF, IGNORE_DUP_KEY = OFF, ALLOW_ROW_LOCKS = ON, ALLOW_PAGE_LOCKS = ON) ON [PRIMARY]
+) ON [PRIMARY]
+
+
+INSERT INTO [dbo].[vrsapi_sso]
+           ([id],[AccessKey],[ReturnUrl]
+           ,[Ip]
+           ,[tid])
+     VALUES
+           ('testid','12345678901234567890123456789012',
+		   'http://google.com'
+           ,'0.0.0.0'
+           ,16)
+
+IF OBJECT_ID('dbo.vrsapi_ssosession', 'U') IS NOT NULL
+  drop table [dbo].[vrsapi_ssosession]
+CREATE TABLE [dbo].[vrsapi_ssosession](
+	[SSOidx] [int] NOT NULL,
+	[AccessTokenKey] [varchar](50) NOT NULL,
+	[AccessToken] [varchar](50) NOT NULL,
+	[CreateTime] [datetime] NOT NULL
+) ON [PRIMARY]
+
+GO
+
+
