@@ -151,10 +151,10 @@ namespace SSOUserSync
     }
 
     interface SSOReader
-    {
-        bool Read();
-        SSOState CheckCondition(out string value);
-        void Eatup();
+    {//read SSO source and notify where it reads now
+        bool Read();//read something
+        SSOState CheckCondition(out string value);//notify where the reader is.
+        void Eatup();//if something wrong, skip the SSO account data row to next data row.
     }
 
     public class SSOXmlReader : SSOReader
@@ -534,18 +534,19 @@ namespace SSOUserSync
     }
 
     interface Action
-    {
-        void DoAction(int state, string value);
-        Tx DoInitTx(string txno);
-        void DoSetTitle(string title);
+    {//define what to do in each state
+        void DoAction(int state, string value);//define what to do when SSO reader object reads something.
+        Tx DoInitTx(string txno);//notify the SSO data row event and initial a tx to record
+        void DoSetTitle(string title);//set the tx title event
     }
 
     public class DelegateGroup
-    {
-        public LogTx _logtx;
-        public LogTxDetail _logtxdetail;
-        public InsertArea _insertarea;
-        public InsertCamGroup _insertcamgroup;
+    {//database access function pointer
+        public SyncData _syncdata;//insert bo or update bo when bo has existed
+        public LogTx _logtx;//record transation state
+        public LogTxDetail _logtxdetail;//record a data row belonged to the tx
+        public InsertArea _insertarea;//insert a new area and get its areaid
+        public InsertCamGroup _insertcamgroup;//insert a new camgroup and get its cgid
     }
 
     public class Action3 : Action
