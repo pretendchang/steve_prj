@@ -152,7 +152,7 @@ struct Event_PACKET_Part1
 #define EVENT_CAM_RSDVD "CAM_RSDVD"
 #define EVENT_CAM_SAVE1 "CAM_SAVE1"
 #define EVENT_IPCAM1    "IPCAM1"
-#define EVENT_DVR_MV    "DVR_MV"
+#define EVENT_DVR_MV    "DVR_MV"  //isDVR設為true，ref main.h isDVR
 #define EVENT_CAM_VIDEO "CAM_VIDEO"
 #define EVENT_CAM_JPGLV "CAM_JPGLV"
 #define EVENT_CAM_JPGEV "CAM_JPGEV"
