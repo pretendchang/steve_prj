@@ -1,14 +1,11 @@
-﻿
-#include "stat.h"
-
-/*
+﻿/*
 用途(use case)
    -1. 巢狀處理樹狀結構，使用scandir掃描出本階層符合filter條件的枝幹，並依照compar邏輯做排序
    -2. 每個枝幹會呼叫枝幹處理Handling
    -3. 每個枝幹處理前會依照breakcondition檢查，若不需繼續輪巡所有枝幹，則提前結束本階層的Handling
 架構
    traveldir為controller，程式的核心
-   利用此核心需實作以下function
+   利用此核心需實作_traveldir_handler結構定義的function
    -1. Handling
        處理每個枝幹的工作
    -2. breakcondition
@@ -17,6 +14,9 @@
       使用於scandir，檢查傳入的檔名是否符合命名規則
    -4. compar
       使用於scandir，排序檔案的邏輯
+   -5. nexthandler
+      指向下一層支幹的_traveldir_handler結構，traveldir，scan完本層所有元素後，將此指標傳到下一層支幹處理
+   -6. 用來包裝breakcondition傳入的參數，提供traveldir client實作breakcondition用
    
 目前實作
    -1. 應用於目錄結構  /cam/date/file 的掃瞄
@@ -32,6 +32,7 @@ traveldir若實作為不傳入function pointer
    -1. 若裡面的邏輯，handling, breakcondition修改，traveldir需要重寫，並定義一個新的traveldir function
    -2. 若要把traveldir包裝為shared library，無法包裝
 */ 
+
 
 
 #include "stat.h"
@@ -50,16 +51,9 @@ traveldir若實作為不傳入function pointer
 //input
 space_check spacechecker;
 
-traveldir_handler camhandler;
-traveldir_handler dayhandler;
-traveldir_handler filehandler;
-
-traveldir_handler camexceedsizehandler;
-traveldir_handler dayexceedsizehandler;
-traveldir_handler fileexceedsizehandler;
 //#define TIME_DURATION 31536000 //one year in seconds
 #define TIME_DURATION 86400 //1 days in seconds
-#define SPACE_THRESHOLD 90
+#define SPACE_THRESHOLD 5
 #define FILE_EXPIRED_CHECKED_PATH "/tmp/disk/sda2"
 #define DEVICE_MOUNT_PATH "/tmp/disk/sda2"
 #define CAM_264_FILENAME_REGEXP_PATTERN "[\\w]*-cam[0-9A-Za-z]*-([0-9]{8})-([0-9]{6}).264"
@@ -69,6 +63,38 @@ traveldir_handler fileexceedsizehandler;
 
 #define STAT_OK   1
 #define STAT_NOK  0
+
+int CamHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker);
+int CamExceedSizeHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker);
+int cambreakcondition(const char *checkPath, const int rethandling, const traveldir_breakcondition *checker);
+int camFilter(const struct dirent *namelist);
+
+int DayHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker);
+int DayExceedSizeHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker);
+int daybreakcondition(const char *checkPath, const int rethandling, const traveldir_breakcondition* checker);
+int dayexceedsizebreakcondition(const char *checkPath, const int rethandling, const traveldir_breakcondition* checker);
+int dayFilter(const struct dirent *namelist);
+
+int FileHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker);
+int filebreakcondition(const char *checkPath, const int rethandling, const traveldir_breakcondition* checker);
+int fileexceedsizebreakcondition(const char *checkPath, const int rethandling, const traveldir_breakcondition* checker);
+int fileFilter(const struct dirent *namelist);
+int fileModifydateCompar(const struct dirent **e1, const struct dirent **e2);
+
+traveldir_breakcondition breakchecker;
+
+traveldir_handler filehandler={fileFilter, fileModifydateCompar, FileHandling, filebreakcondition, NULL};
+traveldir_handler dayhandler ={dayFilter,  alphasort,            DayHandling,  daybreakcondition,  &filehandler};
+traveldir_handler camhandler ={camFilter,  alphasort,            CamHandling,  cambreakcondition,  &dayhandler};
+
+traveldir_handler fileexceedsizehandler
+	={fileFilter, fileModifydateCompar, FileHandling, fileexceedsizebreakcondition, NULL};
+traveldir_handler dayexceedsizehandler 
+	={dayFilter, alphasort, DayExceedSizeHandling, dayexceedsizebreakcondition, &fileexceedsizehandler};
+traveldir_handler camexceedsizehandler 
+	={camFilter, alphasort, CamExceedSizeHandling, cambreakcondition, &dayexceedsizehandler};
+
+
 
 #define MAX_MATCH_NUM 32
 int match(const char *regex, const char *string, char *result[]) // important: remember call matchfree to free result in your code if it's not null.
@@ -187,14 +213,14 @@ int GetExpiredPath(char *dayPathExpired, char *timePathExpired)
 	expiredtime_tm = localtime(&expiredtime);
 	strftime(dayPathExpired, 10,"%Y%m%d",expiredtime_tm);
 	stevedebug("exipred:%s",dayPathExpired);
-	strftime(timePathExpired, 10,"%H%M%S",expiredtime_tm);
+	strftime(timePathExpired, 10,"%H%M%S",expiredtime_tm);strcpy(timePathExpired,"192000");
 	stevedebug("exipred time:%s",timePathExpired);
 	
 	return STAT_OK;
 }
 
 int traveldir(const char *path, struct dirent ***namelist, 
-              const traveldir_handler *handler)			  
+              const traveldir_handler *handler, const traveldir_breakcondition *breakchecker)			  
 {
 	char handlingpath[256];
 	int scandircount, idx, rethandling =-1;
@@ -205,16 +231,15 @@ int traveldir(const char *path, struct dirent ***namelist,
 	
 	idx=0;
 	while(idx<scandircount && 
-	        ((handler->breakchecker.breakcondition==NULL)? 1 : 
-			       (handler->breakchecker.breakcondition((*namelist)[idx]->d_name, rethandling,
-				                                         &handler->breakchecker)==1)
+	        ((handler->breakcondition==NULL)? 1 : 
+			       (handler->breakcondition((*namelist)[idx]->d_name, rethandling, breakchecker)==1)
 			)
 		)
 	{
 		strcpy(handlingpath,path);
 		strcat(handlingpath,"/");
 		strcat(handlingpath,(*namelist)[idx]->d_name);stevedetaildebug("handling:%s",handlingpath);
-		rethandling = handler->handling(handlingpath, handler->nexthandler);
+		rethandling = handler->handling(handlingpath, handler->nexthandler, breakchecker);
 		idx++;
 	}
 	free(*namelist);
@@ -271,7 +296,7 @@ int filebreakcondition(const char *checkPath, const int rethandling, const trave
 		return STAT_NOK;
 }
 
-int FileHandling(const char *filePath, const traveldir_handler *handler)
+int FileHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker)
 {
 	struct stat st;
 	if(lstat(filePath, &st)<0)
@@ -313,18 +338,18 @@ int daybreakcondition(const char *checkPath, const int rethandling, const travel
 	else
 		return STAT_NOK;
 }
-int DayExceedSizeHandling(const char *filePath, const traveldir_handler *handler)
+int DayExceedSizeHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker)
 {
 	struct dirent **pDayDir;
 	int rethandling=-1;
-	rethandling = traveldir(filePath, &pDayDir, handler);
+	rethandling = traveldir(filePath, &pDayDir, handler, breakchecker);
 	
 	return rethandling;
 }
-int DayHandling(const char *filePath, const traveldir_handler *handler)
+int DayHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker)
 {
 	struct dirent **pDayDir;
-	traveldir(filePath, &pDayDir, handler);
+	traveldir(filePath, &pDayDir, handler, breakchecker);
 	if(rmdir(filePath)!=0)
 	{
 		statinfo("rmdir fail %s:%s",filePath, strerror(errno));
@@ -344,17 +369,17 @@ int cambreakcondition(const char *checkPath, const int rethandling, const travel
 {
 	return STAT_OK;
 }
-int CamExceedSizeHandling(const char *filePath, const traveldir_handler *handler)
+int CamExceedSizeHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker)
 {
 	struct dirent **pDayDir;
-	traveldir(filePath, &pDayDir, handler);
+	traveldir(filePath, &pDayDir, handler, breakchecker);
 	
 	return STAT_OK;
 }			  
-int CamHandling(const char *filePath, const traveldir_handler *handler)
+int CamHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker)
 {
 	struct dirent **pDayDir;
-	traveldir(filePath, &pDayDir, handler);
+	traveldir(filePath, &pDayDir, handler, breakchecker);
 	
 	return STAT_OK;
 }
@@ -381,53 +406,8 @@ void initstruct()
 	char dayPathExpired[256],timePathExpired[256];
 	GetExpiredPath(dayPathExpired, timePathExpired);
 	
-	camhandler.Filter=camFilter;
-	camhandler.compar=alphasort;
-	camhandler.handling=CamHandling;
-	camhandler.breakchecker.breakcondition=cambreakcondition;
-	camhandler.breakchecker.dayexpiredpath=&dayPathExpired[0];
-	camhandler.breakchecker.timeexpiredpath=&timePathExpired[0];
-	
-	dayhandler.Filter=dayFilter;
-	dayhandler.compar=alphasort;
-	dayhandler.handling=DayHandling;
-	dayhandler.breakchecker.breakcondition=daybreakcondition;
-	dayhandler.breakchecker.dayexpiredpath=&dayPathExpired[0];
-	dayhandler.breakchecker.timeexpiredpath=&timePathExpired[0];
-	
-	filehandler.Filter=fileFilter;
-	filehandler.compar=fileModifydateCompar;
-	filehandler.handling=FileHandling;
-	filehandler.breakchecker.breakcondition=filebreakcondition;
-	filehandler.breakchecker.dayexpiredpath=&dayPathExpired[0];
-	filehandler.breakchecker.timeexpiredpath=&timePathExpired[0];
-	
-	camhandler.nexthandler = &dayhandler;
-	dayhandler.nexthandler = &filehandler;
-
-	camexceedsizehandler.Filter=camFilter;
-	camexceedsizehandler.compar=alphasort;
-	camexceedsizehandler.handling=CamExceedSizeHandling;
-	camexceedsizehandler.breakchecker.breakcondition=cambreakcondition;
-	camexceedsizehandler.breakchecker.dayexpiredpath=&dayPathExpired[0];
-	camexceedsizehandler.breakchecker.timeexpiredpath=&timePathExpired[0];
-	
-	dayexceedsizehandler.Filter=dayFilter;
-	dayexceedsizehandler.compar=alphasort;
-	dayexceedsizehandler.handling=DayExceedSizeHandling;
-	dayexceedsizehandler.breakchecker.breakcondition=dayexceedsizebreakcondition;
-	dayexceedsizehandler.breakchecker.dayexpiredpath=&dayPathExpired[0];
-	dayexceedsizehandler.breakchecker.timeexpiredpath=&timePathExpired[0];
-	
-	fileexceedsizehandler.Filter=fileFilter;
-	fileexceedsizehandler.compar=fileModifydateCompar;
-	fileexceedsizehandler.handling=FileHandling;
-	fileexceedsizehandler.breakchecker.breakcondition=fileexceedsizebreakcondition;
-	fileexceedsizehandler.breakchecker.dayexpiredpath=&dayPathExpired[0];
-	fileexceedsizehandler.breakchecker.timeexpiredpath=&timePathExpired[0];	
-	
-	camexceedsizehandler.nexthandler = &dayexceedsizehandler;
-	dayexceedsizehandler.nexthandler = &fileexceedsizehandler;
+	breakchecker.dayexpiredpath=&dayPathExpired[0];
+	breakchecker.timeexpiredpath=&timePathExpired[0];
 }
 
 void deletefilesizeexceeding()
@@ -441,7 +421,7 @@ void deletefilesizeexceeding()
 	
 	while(checkcapacity()==STAT_NOK)
 	{
-		traveldir(spacechecker._file_expired_checked_path,&pCamDir, &camexceedsizehandler);
+		traveldir(spacechecker._file_expired_checked_path,&pCamDir, &camexceedsizehandler, &breakchecker);
 	}
 }
 
@@ -453,7 +433,7 @@ void deletefileexpired()
 	
 	//GetExpiredPath(dayPathExpired, timePathExpired);
     readconfig();
-	traveldir(spacechecker._file_expired_checked_path,&pCamDir, &camhandler);
+	traveldir(spacechecker._file_expired_checked_path,&pCamDir, &camhandler, &breakchecker);
 }
 
 

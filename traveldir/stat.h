@@ -24,7 +24,6 @@ typedef struct _traveldir_breakcondition
 {
 	char *dayexpiredpath;
 	char *timeexpiredpath;
-	int (*breakcondition)(const char *filename, const int rethandling, const traveldir_breakcondition*);
 };//for customized struct
 
 typedef struct _traveldir_handler traveldir_handler;
@@ -32,14 +31,14 @@ typedef struct _traveldir_handler
 {
 	int (*Filter)(const struct dirent *);
 	int (*compar)(const struct dirent **, const struct dirent **);
-	int (*handling)(const char *filepath, const traveldir_handler *handler);
-	traveldir_breakcondition breakchecker;
+	int (*handling)(const char *filepath, const traveldir_handler *handler, const traveldir_breakcondition* breakchecker);
+	int (*breakcondition)(const char *filename, const int ret_handling, const traveldir_breakcondition*);
 	traveldir_handler *nexthandler;
 };//the definition can't modified
 
 
 int traveldir(const char *path, struct dirent ***namelist, 
-              const traveldir_handler *handler);
+              const traveldir_handler *handler, const traveldir_breakcondition *breakchecker);
 
 void * deletefilethread(void* arg);
 #define ETESTERROR 1000
