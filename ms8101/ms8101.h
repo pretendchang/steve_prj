@@ -194,6 +194,23 @@ struct Event_PACKET_Part2 * SET_PACKET_CAMID_END_AND_LINK_PART2(struct Event_PAC
 	return (struct Event_PACKET_Part2 *)(camidend+1);
 }
 
+struct Event_PACKET_Part2 * SET_PACKET_CAMID_VALUE_AND_LINK_PART2(struct Event_PACKET_Part1 *packet, char *format,...)
+{
+	va_list		ap;
+    va_start(ap, format);
+	vsprintf((char*)packet->Camid, format, ap);
+	va_end(ap);
+	char *camidend = &packet->Camid[strlen((char*)packet->Camid)];
+	*camidend=PACKET_SPLITTER;
+	return (struct Event_PACKET_Part2 *)(camidend+1);
+}
+
+struct ms8101_header_bit
+{
+	U8  command:4;
+	U16 length:12;
+};
+
 #pragma pack(push)
 #pragma pack(1)
 struct ms8101_t
@@ -202,6 +219,7 @@ struct ms8101_t
 	{
 		U8  U8Packet_Header[2];
 		U16 U16Packet_Header;
+		struct ms8101_header_bit bitfield;		
 	}ms8101_header_t;
 	union ms8101_payload
 	{
