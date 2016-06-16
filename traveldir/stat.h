@@ -24,14 +24,16 @@ typedef struct _traveldir_breakcondition
 {
 	char *dayexpiredpath;
 	char *timeexpiredpath;
-};//for customized struct
+};//for customized struct 提供user依據_traveldir_handler的breakcondition實作，可自訂的結構
 
 typedef struct _traveldir_handler traveldir_handler;
 typedef struct _traveldir_handler
 {
 	int (*Filter)(const struct dirent *);
 	int (*compar)(const struct dirent **, const struct dirent **);
+	//filepath:欲處理枝葉的路徑  handler:處理該枝葉須使用的traveldir_handler結構  breakchecker:處理該枝葉須使用的traveldir_breakcondition結構
 	int (*handling)(const char *filepath, const traveldir_handler *handler, const traveldir_breakcondition* breakchecker);
+	//filename:該枝葉的路徑, ret_handling:處理該枝葉的handling函數的回傳值
 	int (*breakcondition)(const char *filename, const int ret_handling, const traveldir_breakcondition*);
 	traveldir_handler *nexthandler;
 };//the definition can't modified
