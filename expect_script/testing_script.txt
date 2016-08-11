@@ -1,0 +1,18 @@
+spawn s1 "c:\plink.exe","-l user -pw password <?ip> -t"
+spawn s2 "c:\psftp.exe","-l user -pw password <?ip>"
+s1.expect "Password:" "su"
+s1.expect "#" "12345"
+s1.expect "#" "chmod 777 /home/guest"
+s1.expect "#" "mkdir /home/usb"
+s1.mountusb osusb /home/usb
+s2.expect ">" "cd /home/guest/"
+s2.expect ">" "put c:\test.txt"
+s1.expect "#" "crontab -l > /home/guest/crontabbak.txt"
+s1.expect "#" "crontab -d"
+s1.assignpid ncspid ncs_core
+s1.kill "#" ncspid
+s1.expect "#" "cp /home/guest/test.txt /disk1/0_steve/"
+s1.expect "#" "cp /home/guest/test.txt /home/usb/porteus/"
+s1.expect "#" "crontab /home/guest/crontabbak.txt"
+s1.expect "#" "umount /home/usb/"
+s1.expect "#" rmdir /home/usb/"
