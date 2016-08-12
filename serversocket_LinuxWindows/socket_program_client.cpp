@@ -31,13 +31,36 @@
 #endif
 #define sockemax 2
 SOCKET sockfd[sockemax];
+
 struct sockaddr_in dest_addr[sockemax];
 int clientstatus[sockemax]={0,0};
-int commandstatus[sockemax]={0,0};
 
 Thread_Mutex_t socket_cond_mutex[sockemax];
 Cond_t  socket_cond[sockemax];
 fd_set masterfd;
+
+
+SOCKET maxsockfd=0;
+#ifndef WIN32
+void set_maxsockfd(SOCKET s)
+{
+	maxsockfd = ((s > maxsockfd)?s:maxsockfd);
+}
+void remove_maxsockfd(SOCKET s)
+{
+	int i;
+	if(s > maxsockfd)
+	{
+		maxsockfd=0;
+		for(i=0;i<sockemax;i++)
+		{
+			if(clientstatus[i]==1)
+				set_maxsockfd(sockfd[i]);
+		}
+	}
+}
+#endif
+
 
 void thread_create(void *fp, void *args, Thread_t *t)
 {
@@ -116,9 +139,13 @@ void connthread()
 				mutex_lock(&socket_cond_mutex[i]);
 				//pthread_cond_broadcast(&socket_cond[i]);
 				clientstatus[i]=1;
+#ifndef WIN32				
+				set_maxsockfd(sockfd[i]);
+#endif				
+				FD_SET(sockfd[i], &masterfd);
 				mutex_unlock(&socket_cond_mutex[i]);
 				///該sockfd連線成功將其加入fd_set中
-				FD_SET(sockfd[i], &masterfd);
+				
 				printf("connect successful\n");
 			}
 		}
@@ -164,16 +191,12 @@ int socketentry()
 	for(i=0;i<sockemax;i++)
 	{
 		memset(&dest_addr[i], 0, sizeof(dest_addr[i]));
-#ifdef WIN32	
-		dest_addr[i].sin_addr.S_un.S_addr=INADDR_ANY;
-#else
-		dest_addr[i].sin_addr.s_addr=INADDR_ANY;
-#endif
+
 		dest_addr[i].sin_family=AF_INET;
 		dest_addr[0].sin_port=htons(513);
 		dest_addr[1].sin_port=htons(515);
 #ifdef WIN32	
-		InetPton(AF_INET, (PCWSTR)L"192.168.13.77", &(dest_addr[i].sin_addr));
+		InetPton(AF_INET, (PCWSTR)L"192.168.146.133", &(dest_addr[i].sin_addr));
 #else
 		inet_pton(AF_INET, "192.168.13.77", &(dest_addr[i].sin_addr));
 #endif
@@ -189,15 +212,13 @@ int socketentry()
 			//	pthread_mutex_lock(&socket_cond_mutex[i]);
 			//	pthread_cond_wait(&socket_cond[i], &socket_cond_mutex[i]);
 			//	pthread_mutex_unlock(&socket_cond_mutex[i]);
-				commandstatus[i]=0;
 				continue;
-			}
-			if(clientstatus[i]==1&&commandstatus[i]==0)
+			}printf("%d %d\n",i,clientstatus[i]);
+			if(clientstatus[i]==1)
 			{
 				sprintf(scon,"%03d",icon);
 				sendcount = send(sockfd[i], scon, strlen(scon), MSG_NOSIGNAL);
 				printf("main send:%d\n",sendcount);fflush(stdout);
-				commandstatus[i]=2;
 			}
 		}
 				
@@ -209,7 +230,7 @@ int socketentry()
 			
 			tv.tv_sec = 3;		
 			tv.tv_usec = 0;
-			if((selret=select(100, &recvfd, NULL, NULL, &tv))<0)
+			if((selret=select(maxsockfd+1, &recvfd, NULL, NULL, &tv))<0)
 			{
 				printf("select error:%s\n",strerror(errno));
 				for(i=0;i<sockemax;i++)
@@ -217,9 +238,11 @@ int socketentry()
 					mutex_lock(&socket_cond_mutex[i]);
 					clientstatus[i]=0;
 					mutex_unlock(&socket_cond_mutex[i]);
-					commandstatus[i]=0;
 					///select失敗將所有sockfd自fd_set中移除
 					FD_CLR(sockfd[i], &masterfd);
+#ifndef WIN32
+					remove_maxsockfd(sockfd[i]);
+#endif
 					closesocket(sockfd[i]);
 				}
 			}
@@ -242,7 +265,6 @@ int socketentry()
 					if(res>0)
 					{
 						streamhandling(data, res);
-						commandstatus[i]=0;
 						//send(acceptSocket, data, res, 0);
 					}
 					else
@@ -250,9 +272,11 @@ int socketentry()
 						mutex_lock(&socket_cond_mutex[i]);
 						clientstatus[i]=0;
 						mutex_unlock(&socket_cond_mutex[i]);
-						commandstatus[i]=0;
 						///網路封包recv失敗，該sockfd自fd_set中移除
 						FD_CLR(sockfd[i], &masterfd);
+#ifndef WIN32
+						remove_maxsockfd(sockfd[i]);
+#endif
 						closesocket(sockfd[i]);
 					}
 				}
@@ -285,6 +309,7 @@ int main(int argc, char *argv[])
 #else
 int _tmain(int argc, _TCHAR* argv[])
 {
+	socketentry();
 	return 0;
 }
 #endif

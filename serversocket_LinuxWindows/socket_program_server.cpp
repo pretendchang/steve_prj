@@ -175,6 +175,9 @@ int main(int argc, char *argv[])
 #else
 int _tmain(int argc, _TCHAR* argv[])
 {
+	char c[10];
+	wcstombs(c, argv[1], wcslen(argv[1]));c[1]=0;
+	socketentry(c);
 	return 0;
 }
 #endif
