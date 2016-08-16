@@ -249,21 +249,28 @@ int fileModifydateCompar(const struct dirent **e1, const struct dirent **e2)
 {
 	char *matchresult1[3];
 	char *matchresult2[3];
-	int matchn1, matchn2;
+	int matchn1, matchn2, ret;
 	stevedetaildebug("e1:%s, e2:%s",(*e1)->d_name,(*e2)->d_name);
-	matchn1 = match(CAM_264_FILENAME_REGEXP_PATTERN,(*e1)->d_name,matchresult1);
+	matchn1 = match(CAM_FILENAME_REGEXP_PATTERN,(*e1)->d_name, matchresult1);
 	if(matchn1<=0)
 	{
-		statinfo("fileModifydateCompar match1 error: input %s, pattern %s",(*e1)->d_name,CAM_264_FILENAME_REGEXP_PATTERN);
+		statinfo("fileModifydateCompar match1 error: input %s, pattern %s",(*e1)->d_name,CAM_FILENAME_REGEXP_PATTERN);
 	}
-	matchn2 = match(CAM_264_FILENAME_REGEXP_PATTERN,(*e2)->d_name,matchresult2);
+	matchn2 = match(CAM_FILENAME_REGEXP_PATTERN,(*e2)->d_name, matchresult2);
 	if(matchn2<=0)
 	{
-		statinfo("fileModifydateCompar match2 error: input %s, pattern %s",(*e2)->d_name,CAM_264_FILENAME_REGEXP_PATTERN);
+		statinfo("fileModifydateCompar match2 error: input %s, pattern %s",(*e2)->d_name,CAM_FILENAME_REGEXP_PATTERN);
 	}
 
 	stevedetaildebug("e1_match:%s, e2_match:%s",matchresult1[2],matchresult2[2]);
-	return strcmp(matchresult1[2],matchresult2[2]);
+	ret = strcmp(matchresult1[2],matchresult2[2]);
+	
+	if(matchn1 > 0)
+		matchfree(matchn1, matchresult1);
+	
+	if(matchn2 > 0)
+		matchfree(matchn2, matchresult2);
+	return ret;
 }
 int fileFilter(const struct dirent *namelist)
 {
@@ -284,16 +291,24 @@ int filebreakcondition(const char *checkPath, const int rethandling, const trave
 	char *matchresult[3];
 	int matchn;
 	
-	matchn = match(CAM_264_FILENAME_REGEXP_PATTERN,checkPath,matchresult);
+	matchn = match(CAM_FILENAME_REGEXP_PATTERN,checkPath,matchresult);
 	if(matchn<=0)
 	{
-		statinfo("filebreakcondition match error: input %s, pattern %s",checkPath,CAM_264_FILENAME_REGEXP_PATTERN);
+		statinfo("filebreakcondition match error: input %s, pattern %s",checkPath,CAM_FILENAME_REGEXP_PATTERN);
+		return STAT_NOK;
 	}
 	stevedetaildebug("filebreakcondition:matchresult1:%s, ExpiredDate:%s matchresult2:%s, ExpiredTime:%s",matchresult[1], checker->dayexpiredpath, matchresult[2], checker->timeexpiredpath);
+
 	if(strcmp(matchresult[1], checker->dayexpiredpath)<0 || (strcmp(matchresult[1], checker->dayexpiredpath)>=0 && strcmp(matchresult[2], checker->timeexpiredpath)<=0))
+	{
+		matchfree(matchn, matchresult);
 		return STAT_OK;
+	}
 	else
+	{
+		matchfree(matchn, matchresult);
 		return STAT_NOK;
+	}
 }
 
 int FileHandling(const char *filePath, const traveldir_handler *handler, const traveldir_breakcondition *breakchecker)
