@@ -5,7 +5,7 @@ title: autoscript
 現今資訊系統架構大多是分散式系統，因此系統管理者需要管理成百上千的資訊設備，若這些資訊設備遇到更新軟體的需求，常見的作法之一是由管理者在其中一台主機，自動執行預先定義好的腳本，遠端控制這些設備執行系統更新，可達到節省人力時間的效果。
 
 ### 2. 批次程式佈署技術
-這種自動執行腳本遠端控制的技術很多，常見的終端機軟體putty, plink, telnet都支援這樣的技術，但通常都有一些使用上的限制(ex: su指令)，expect技術克服了這些困難，他導向了執行主機的stdout和stdin，因此可以完整執行使用者定義的所有動作。
+這種自動執行腳本遠端控制的技術很多，常見的終端機軟體putty, plink, telnet都支援這樣的技術，但通常都有一些使用上的限制(ex: su指令)，expect技術克服了這些困難，他導向了執行主機的stdout和stdin到程式中，讓程式運行時如同系統管理者正在終端機前下指令。
 
 expect在windows環境上的實作，主要有四個專案：activestate expect、chaffee expect、dejagnu和expect .net。
 activestate expect和chaffee expect需另外再安裝tcl script engine；dejagnu則是以cygwin做為執行環境，由於這三個工具需再另外安裝其他軟體，因此選擇expect .net，expect.net是一個.net技術實作的函式庫，對熟悉微軟系統的使用者來說，使用門檻最低。
@@ -14,14 +14,14 @@ activestate expect和chaffee expect需另外再安裝tcl script engine；dejagnu
 實作批次程式佈署需求如下：
 1. 使用plink透過ssh連線到遠端linux主機控制系統
 2. 使用psftp透過sftp協定傳遞檔案到遠端
-3. 將隨身碟mount起來
-4. kill要更換的process
-5. 需求2的檔案複製到正確的路徑
+3. mount插在將隨身碟mount起來
+4. 停止稍後要更新的服務
+5. 需求2的檔案複製到正確的路徑和隨身碟
 6. 處理過程若發生問題，需通知管理者
 
 ### 4. 系統實作
-#### 4-1. expect .net api introduce
-expect .net 常用api如下
+#### 4-1. expect .net API介紹
+expect .net api常用功能如下
 ```cs
 //1. 建立執行命令
 ProcessSpawnable(execute_command, command_args)
@@ -43,7 +43,7 @@ spawn.send
 以使用plink登入遠端linux主機為例
 ```cs
 //開啟plink程式
-Session spawn = Expect.Spawn(new ProcessSpawnable("c:\\plink.exe","-l username -pw password 192.168.13.77 -t"));
+Session spawn = Expect.Spawn(new ProcessSpawnable("c:\\plink.exe","-l username -pw password xx.xx.xx.xx -t"));
 
 //等待終端機回傳內含"$"字串，若在timeout時間內等到，則印出字串
 spawn.Expect("$", s => Console.WriteLine("got: " + s));
@@ -92,7 +92,7 @@ spawn spawnobject "execute_command","command_args"
 
 2.expect
 ```sh
-#1. 執行do_something後，等待終端機回傳內含expect_string字串，並且檢查do_something執行結果，若在timeout時間內等到，則印出字串
+#1. 執行do_something後，等待終端機回傳內含expect_string字串，並且檢查do_something執行結果
 spawnobject.expect_with_check expect_string do_something
 
 #2. 執行do_something後，等待終端機回傳內含expect_string字串，等待時間拉長到30s，若在timeout時間內等到，則印出字串，此指令解決ftp檔案上傳，指令回應速度較慢的問題
@@ -149,7 +149,7 @@ mount實作
 ```
 4.指令遠端主機IP
 ```bs
-我設計<?ip>變數，使用者可自第二個程式執行參數指定變數值。
+目前程式設計<?ip>變數，使用者可自第二個程式執行參數指定變數值。
 ```
 #### 4-6. 儲存使用者定義的script object
 我採用.net Dictionary物件儲存，Dictionary物件以key, value的形式儲存物件，系統中spawn和assignpid兩個指令為物件定義指令，script中的第二個參數物件名字就放在dictionary的key中，對應expect.net物件，儲存在value
@@ -162,11 +162,11 @@ spawn_dictionary.Add(op1, ps_results[ps_results.Length - 2]);
 ### 5. 應用
 將4-2節expect .net的實作修改為這個script language的語法
 ```sh
-#建立名字s1的spawnobject執行plink
-spawn s1 "c:\plink.exe","-l username -pw password  -t"
+#建立名字s1的spawnobject執行plink，plink執行參數定義<?ip>，因此commandline第二個參數指定的值，將會設定到<?ip>變數
+spawn s1 "c:\plink.exe","-l username -pw password <?ip> -t"
 
 #建立名字s2的spawnobject執行psftp
-spawn s2 "c:\psftp.exe","-l username -pw password "
+spawn s2 "c:\psftp.exe","-l username -pw password <?ip>"
 
 #在plink上執行su，執行完畢後預期收到"password:"字串
 s1.expect "Password:" "su"
