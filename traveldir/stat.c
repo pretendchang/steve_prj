@@ -39,6 +39,8 @@ traveldir若實作為不傳入function pointer
 
 #ifdef _INDEV
 	#define log_msg(format, ...); printf(format,##__VA_ARGS__);printf("\n");
+	#define STATDEVICE_PATH "/mnt/log/statDevice"
+	#define DISK_PATH "/mnt/log/test/"	
 #else
 	extern void log_msg(const char *fmt, ...);
 #endif
@@ -53,13 +55,10 @@ space_check spacechecker;
 
 //#define TIME_DURATION 31536000 //one year in seconds
 #define TIME_DURATION 86400 //1 days in seconds
-#define SPACE_THRESHOLD 5
-#define FILE_EXPIRED_CHECKED_PATH "/tmp/disk/sda2"
-#define DEVICE_MOUNT_PATH "/tmp/disk/sda2"
-#define CAM_264_FILENAME_REGEXP_PATTERN "[\\w]*-cam[0-9A-Za-z]*-([0-9]{8})-([0-9]{6}).264"
-#define CAM_264_FILENAME_REGEXP_FILTER  "[\\w]*-cam[0-9A-Za-z]*-[0-9]{8}-[0-9]{6}.264"
-#define EXECUTE_FREQUENCY 5
-#define STATDEVICE_PATH "/mnt/log/statDevice"
+#define SPACE_THRESHOLD 90
+#define CAM_FILENAME_REGEXP_PATTERN "[\\w]*-cam[0-9A-Za-z]*-([0-9]{8})-([0-9]{6}).[0-9A-Za-z]*"
+#define CAM_FILENAME_REGEXP_FILTER  "[\\w]*-cam[0-9A-Za-z]*-[0-9]{8}-[0-9]{6}.[0-9A-Za-z]*"
+#define EXECUTE_FREQUENCY 600
 
 #define STAT_OK   1
 #define STAT_NOK  0
@@ -144,6 +143,22 @@ void matchfree(int nMatched, char *result[])
 		free(result[i]);
 }
 
+int trim_last_slash(char *s)
+{
+	if(s==NULL)
+		return STAT_NOK;
+	
+	if(s[strlen(s)-1]=='/')
+	{
+		s[strlen(s)-1]=0;
+		return STAT_OK;
+	}
+	else
+	{
+		return STAT_NOK;
+	}
+}
+
 int statDevice(const char *devicemountpath)
 {
 #define BUFFER_SIZE	100
@@ -197,7 +212,15 @@ int readconfig()
 {
 	spacechecker._time_duration=TIME_DURATION;
 	spacechecker._space_threashold=SPACE_THRESHOLD;
-	strcpy(spacechecker._file_expired_checked_path, FILE_EXPIRED_CHECKED_PATH);
+	strcpy(spacechecker._file_expired_checked_path, DISK_PATH);
+	
+	if(trim_last_slash(spacechecker._file_expired_checked_path)==STAT_NOK)
+	{
+		statinfo("_file_expired_checked_path pattern error:%s",spacechecker._file_expired_checked_path);
+		return STAT_NOK;
+	}
+
+	stevedebug("_file_expired_checked_path:%s",spacechecker._file_expired_checked_path);
 	return STAT_OK;
 }
 
@@ -208,13 +231,18 @@ int GetExpiredPath(char *dayPathExpired, char *timePathExpired)
 	struct tm *expiredtime_tm;
 	struct tm *systemtime_tm;char systemtime[50];
 	
-	nowtime=time(NULL);systemtime_tm = localtime(&nowtime);strftime(systemtime, 50,"%Y\%m\%d %H:%M:%S",systemtime_tm);stevedebug("systemtime:%s(%lld)",systemtime,(long long int)nowtime);
+	nowtime=time(NULL);systemtime_tm = localtime(&nowtime);
+	strftime(systemtime, 50,"%Y\%m\%d %H:%M:%S",systemtime_tm);
+	statinfo("systemtime:%s(%lld)",systemtime,(long long int)nowtime);
+	
 	expiredtime = nowtime-TIME_DURATION;
 	expiredtime_tm = localtime(&expiredtime);
-	strftime(dayPathExpired, 10,"%Y%m%d",expiredtime_tm);
-	stevedebug("exipred:%s",dayPathExpired);
-	strftime(timePathExpired, 10,"%H%M%S",expiredtime_tm);strcpy(timePathExpired,"192000");
-	stevedebug("exipred time:%s",timePathExpired);
+	snprintf(dayPathExpired, 10,"%04d%02d%02d",expiredtime_tm->tm_year+1900,expiredtime_tm->tm_mon+1,expiredtime_tm->tm_mday);
+	strcpy(dayPathExpired,"20160525");
+	statinfo("exipred:%s",dayPathExpired);
+	snprintf(timePathExpired, 10,"%02d%02d%02d",expiredtime_tm->tm_hour,expiredtime_tm->tm_min,expiredtime_tm->tm_sec);
+	strcpy(timePathExpired,"000200");
+	statinfo("exipred time:%s",timePathExpired);
 	
 	return STAT_OK;
 }
@@ -240,6 +268,7 @@ int traveldir(const char *path, struct dirent ***namelist,
 		strcat(handlingpath,"/");
 		strcat(handlingpath,(*namelist)[idx]->d_name);stevedetaildebug("handling:%s",handlingpath);
 		rethandling = handler->handling(handlingpath, handler->nexthandler, breakchecker);
+		free((*namelist)[idx]);
 		idx++;
 	}
 	free(*namelist);
@@ -274,7 +303,7 @@ int fileModifydateCompar(const struct dirent **e1, const struct dirent **e2)
 }
 int fileFilter(const struct dirent *namelist)
 {
-	if(match(CAM_264_FILENAME_REGEXP_FILTER, namelist->d_name, NULL)>0)
+	if(match(CAM_FILENAME_REGEXP_FILTER, namelist->d_name, NULL)>0)
 		return STAT_OK;
 	else
 		return STAT_NOK;//fail
@@ -324,7 +353,7 @@ int FileHandling(const char *filePath, const traveldir_handler *handler, const t
 		if(unlink(filePath)!=0)
 		{
 			statinfo("delete fail %s:%s",filePath, strerror(errno));
-			return STAT_NOK
+			return STAT_NOK;
 		}
 		#endif
 		statinfo("delete %s",filePath);
@@ -401,7 +430,16 @@ int CamHandling(const char *filePath, const traveldir_handler *handler, const tr
 
 int checkcapacity()
 {
-	int pcent = statDevice(DEVICE_MOUNT_PATH);
+	char statDevicePath[50];
+	strcpy(statDevicePath,DISK_PATH);
+	
+	if(trim_last_slash(statDevicePath)==STAT_NOK)
+	{
+		statinfo("statDevicePath pattern error:%s",statDevicePath);
+		return STAT_NOK;
+	}
+	
+	int pcent = statDevice(statDevicePath);
 	if(pcent < 0)
 	{//statDevice error, ignore checking capacity process. retry next run
 		return STAT_OK;
@@ -415,10 +453,9 @@ int checkcapacity()
 	stevedebug("pcent:%d capacity is ok",pcent);
 	return STAT_OK;
 }
-
+char dayPathExpired[256],timePathExpired[256];
 void initstruct()
 {
-	char dayPathExpired[256],timePathExpired[256];
 	GetExpiredPath(dayPathExpired, timePathExpired);
 	
 	breakchecker.dayexpiredpath=&dayPathExpired[0];
@@ -454,9 +491,9 @@ void deletefileexpired()
 
 void * deletefilethread(void* arg)
 {
-	initstruct();
 	while(1)
 	{
+		initstruct();
 		stevedebug("deletefileexpired");
 		deletefileexpired();
 		stevedebug("deletefilesizeexceeding");
@@ -468,11 +505,15 @@ void * deletefilethread(void* arg)
 #ifdef _INDEV
 int main(int argc, char *argv[])
 {
-	initstruct();
-	stevedebug("deletefileexpired");
-	deletefileexpired();
-	stevedebug("deletefilesizeexceeding");
-	deletefilesizeexceeding();
+	int i;
+	for(i=0;i<10;i++)
+	{
+		initstruct();
+		stevedebug("deletefileexpired");
+		deletefileexpired();
+		stevedebug("deletefilesizeexceeding");
+		deletefilesizeexceeding();
+	}
     return 1;
 } /* main */
 #endif
