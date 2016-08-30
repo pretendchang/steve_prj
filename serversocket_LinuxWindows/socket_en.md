@@ -1,7 +1,7 @@
 ---
 title: cross windows & linux plateform basic socket program
 ---
-### 1. socket通訊程式
+### 1. Socket programming
 大部分的socket通訊程式都有一個需求---接收對方傳送的資料，這個需求實作的好壞，影響了系統的效率。
 
 socket通訊程式接收資料最直覺的做法是block io，recv函數收到資料前，持續等待資料，這使得程式無法做其他事情，效率不彰。
@@ -10,7 +10,7 @@ non-block io模式解決這問題，recv函數即使沒有收到資料情況下�
 
 這篇文章將以select函數實作一個可同時在windows和linux平台編譯的簡易網路通訊程式。
 
-### 2. select函數說明
+### 2. Introduction of select function
 ```cs
 int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
 ```
@@ -27,7 +27,7 @@ int select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struc
 4. 每次呼叫select前須重新設定timeval
 
 
-### 3. 使用select注意的地方
+### 3. Note about select function
 由於select會改變recvfd的值，因此需另外定義masterfd來儲存目前建立連線的fd，每次呼叫select前都要設定fd_set為masterfd和timeval
 ```cs
 recvfd=masterfd;		
@@ -66,10 +66,10 @@ else
 }
 ```
 
-### 4. windows和linux平台在socket通訊程式開發的差異
-socket通訊程式開發，會使用到socket和thread函式庫，本段將說明這兩個函式庫，在此兩個平台的差異。
+### 4. Difference between windows and linux about socket programming
+Socket programming always uses socket and thread library. The section are going to talk about the difference of the library between these two plateforms.
 #### 4-1. socket
-windows和linux平台在socket實作，差別有4：
+windows平台和linux平台在socket實作，差別有4：
 
 1.socket初始化
 windows平台需要初始化WSDATA，最後不使用socket前，須把WSDATA資源釋放

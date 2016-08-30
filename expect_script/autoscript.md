@@ -1,25 +1,27 @@
 ---
 title: autoscript
 ---
-### 1. 批次程式佈署
-現今資訊系統架構大多是分散式系統，因此系統管理者需要管理成百上千的資訊設備，若這些資訊設備遇到更新軟體的需求，常見的作法之一是由管理者在其中一台主機，自動執行預先定義好的腳本，遠端控制這些設備執行系統更新，可達到節省人力時間的效果。
+### 1. 批次軟體升級佈署
+現今資訊系統架構大多是分散式系統，因此系統管理者需要管理成百上千的資訊設備，若這些資訊設備遇到升級軟體的需求，常見的作法之一是由管理者在其中一台主機，自動執行預先定義好的腳本，遠端控制這些設備執行系統更新，可達到節省人力時間的效果。
 
-### 2. 批次程式佈署技術
-這種自動執行腳本遠端控制的技術很多，常見的終端機軟體putty, plink, telnet都支援這樣的技術，但通常都有一些使用上的限制(ex: su指令)，expect技術克服了這些困難，他導向了執行主機的stdout和stdin到程式中，讓程式運行時如同系統管理者正在終端機前下指令。
+### 2. 批次軟體升級佈署技術
+自動執行腳本遠端控制的技術很多，常見的終端機軟體putty, plink, telnet都支援這樣的技術，但通常都有一些使用上的限制(ex: su指令)，expect技術克服了這些困難，他導向了執行主機的stdout和stdin到程式中，讓程式運行時如同系統管理者正在終端機前下指令。
 
 expect在windows環境上的實作，主要有四個專案：activestate expect、chaffee expect、dejagnu和expect .net。
 activestate expect和chaffee expect需另外再安裝tcl script engine；dejagnu則是以cygwin做為執行環境，由於這三個工具需再另外安裝其他軟體，因此選擇expect .net，expect.net是一個.net技術實作的函式庫，對熟悉微軟系統的使用者來說，使用門檻最低。
 
-### 3. 批次程式佈署需求
-實作批次程式佈署需求如下：
-1. 使用plink透過ssh連線到遠端linux主機控制系統
-2. 使用psftp透過sftp協定傳遞檔案到遠端
-3. mount插在將隨身碟mount起來
+這篇文章將使用expect.net開發一個可提供批次軟體升級佈署的script engine，提供使用者自定執行腳本執行大量遠端佈署的工作。
+
+### 3. script engine需求
+實作script engine需求如下：
+1. 使用終端機軟體透過ssh協定連線到遠端linux主機控制系統
+2. 使用sftp協定傳遞檔案到遠端
+3. 掛載遠端伺服器的USB隨身碟
 4. 停止稍後要更新的服務
-5. 需求2的檔案複製到正確的路徑和隨身碟
+5. 需求2的檔案複製到正確的本機路徑和隨身碟空間，並啟動服務
 6. 處理過程若發生問題，需通知管理者
 
-### 4. 系統實作
+### 4. 實作script engine
 #### 4-1. expect .net API介紹
 expect .net api常用功能如下
 ```cs
@@ -63,11 +65,10 @@ spawn.Expect("root", (s) => Console.WriteLine("found: " + s));
 //送出指令
 spawn.Send("chmod 777 /home/guest\n");
 ```
-
-#### 4-3. 錯誤處理
+#### 4-4. 錯誤處理
 考量系統管理者使用此工具時，大多針對大量設備執行工作，因此錯誤管理的機制非常重要，若執行的過程中有問題，必須清楚讓管理者清楚哪邊出問題，系統中針對每一台設備執行的過程，開啟檔案紀錄，若執行過程發生錯誤，系統會更改檔名，加註err在檔名中，管理者就可以清楚知道哪台設備更新過程出問題，進入處理。
 
-#### 4-4. 系統參數
+#### 4-5. 系統參數
 系統設計兩個執行參數，參數說明如下：
 ```bs
 expect script_file_path remote_server_ip
@@ -76,12 +77,12 @@ expect script_file_path remote_server_ip
 第二個參數是script檔中的變數的值
 
 
-#### 4-5. 指令實作
-為了可以讓系統管理者隨時定義他想做的工作內容，我將上述expect.net api包裝成一種script language，指令的基本格式：
+#### 4-6. 指令實作
+script engine的指令的基本格式：
 ```sh
 opcode op1 op2
-#opcode是命令名稱
-#op1, op2是opcode命令的參數
+#opcode是命令名稱，除了spawn命令外，其他命令須帶入spawnobject，請參考spawn指令說明
+#op1, op2是opcode命令的參數，依照opcode不同，指令參數可能有一個或兩個
 ```
 指令說明如下
 1.spawn
@@ -89,8 +90,18 @@ opcode op1 op2
 #建立一個spawnobject物件，執行execute_command command_args
 spawn spawnobject "execute_command","command_args"
 ```
+產生的spawnobject代表一個主控台視窗，後續可使用此object執行expect或是mount命令，相當於開啟主控台後，在該主控台視窗終執行程式，在script為了辨別是在那個視窗執行，執行expect或是send功能時，前面須帶入spawnobject名稱，ex:spawnobject.expect。
+spawnobject的實作採用.net Dictionary物件，Dictionary物件以key, value的形式儲存物件，engine中spawn和assignpid兩個指令為物件定義指令，script中的第二個參數物件名字就放在dictionary的key中，對應expect.net物件，儲存在value
+```cs
+//將指令的op1存入dictionary中
+spawn_dictionary.Add(op1, ps_results[ps_results.Length - 2]);
+//自dictionary取用物件
+((Session)spawn_dictionary[param_arr[0]]).Expect("root", (s) => opcode = s);
+```
+
 
 2.expect
+expect指令須帶入要執行的spawnobject，共有三個指令，說明如下：
 ```sh
 #1. 執行do_something後，等待終端機回傳內含expect_string字串，並且檢查do_something執行結果
 spawnobject.expect_with_check expect_string do_something
@@ -127,12 +138,13 @@ kill process的實作
 ```cs
  ((Session)spawn_dictionary[param_arr[0]]).Send("kill " + ((string)spawn_dictionary[op2]) + "\n");
 ```
-4.mount
+4. mount
 ```bs
-#mount隨身碟到mountpoint路徑
+#掛載隨身碟到mountpoint路徑
 spawnobject.mountusb usbobject mountpoint
 ```
-mount實作
+mount指令實作
+假設USB隨身碟為容量最小的磁碟機，目前的實作是依據磁碟空間來搜尋
 ```cs
 //找出容量最小的磁碟
  ((Session)spawn_dictionary[param_arr[0]]).Send("lsblk -b | grep ^sd | awk -v min=100000000000000000 '{if(min>$4){min=$4;name=$1}}END {print name}'\n");
@@ -147,40 +159,32 @@ mount實作
  string usbname = opcode.Substring(indexofsd, 3);
  ((Session)spawn_dictionary[param_arr[0]]).Send("mount /dev/" + usbname + "1 " + op2 + "\n");
 ```
-4.指令遠端主機IP
+4.遠端主機IP變數
 ```bs
-目前程式設計<?ip>變數，使用者可自第二個程式執行參數指定變數值。
-```
-#### 4-6. 儲存使用者定義的script object
-我採用.net Dictionary物件儲存，Dictionary物件以key, value的形式儲存物件，系統中spawn和assignpid兩個指令為物件定義指令，script中的第二個參數物件名字就放在dictionary的key中，對應expect.net物件，儲存在value
-```cs
-//將指令的op1存入dictionary中
-spawn_dictionary.Add(op1, ps_results[ps_results.Length - 2]);
-//自dictionary取用物件
-((Session)spawn_dictionary[param_arr[0]]).Expect("root", (s) => opcode = s);
+Engine目前設計<?ip>變數，使用者可在script file中使用，執行時可自主控台指令的第二個參數指定其值。
 ```
 ### 5. 應用
-將4-2節expect .net的實作修改為這個script language的語法
+將4-2節expect .net的實作修改為這個script engine的語法
 ```sh
-#建立名字s1的spawnobject執行plink，plink執行參數定義<?ip>，因此commandline第二個參數指定的值，將會設定到<?ip>變數
+#建立名字s1的spawnobject執行plink，plink執行參數定義"-l username -pw password <?ip> -t"，其中主控台指令的第二個參數指定的值，將會設定到<?ip>變數
 spawn s1 "c:\plink.exe","-l username -pw password <?ip> -t"
 
 #建立名字s2的spawnobject執行psftp
 spawn s2 "c:\psftp.exe","-l username -pw password <?ip>"
 
-#在plink上執行su，執行完畢後預期收到"password:"字串
+#在plink上執行su，執行完畢後預期收到"password:"字串，再輸入密碼1234
 s1.expect "Password:" "su"
 s1.expect "#" "1234"
 
-#在plink上執行chmod，並且檢查執行結果，執行完畢後預期收到"#"字串
+#在plink上執行chmod，並且檢查執行結果，執行完畢後預期收到"#"
 s1.expect_with_check "#" "chmod 777 /home/guest"
 s1.expect_with_check "#" "mkdir /home/usb"
 
 #在plink上執行mount到/home/usb
 s1.mountusb osusb /home/usb
-s2.expect_with_check ">" "cd /home/guest/"
 
-#在psftp上執行put，執行完畢後預期收到">"字串，考量傳資料會花較長時間，因此執行longtimeout
+#在psftp上執行put，執行完畢後預期收到">"字串，考量傳資料會花較長時間，採用expect_longtimeout
+s2.expect_with_check ">" "cd /home/guest/"
 s2.expect_longtimeout ">" "put c:\test.txt"
 
 #在plink上取得execute_pcs的pid將值指定到ncspid變數
@@ -196,4 +200,4 @@ s1.expect "#" rmdir /home/usb/"
 
 
 ### 6. future work
-針對各種管理需求，本系統還可以繼續實作各種管理功能，包含getpid可以抓取多個prcess id的功能，這都是後續可以精進的方向
+針對各種管理需求，本系統還可以繼續實作各種管理功能，包含getpid可以抓取多個prcess id的功能、執行失敗的還原和掛載USB隨身碟，這都是後續可以精進的方向
