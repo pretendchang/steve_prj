@@ -13,7 +13,7 @@ activestate expect和chaffee expect需另外再安裝tcl script engine；dejagnu
 這篇文章將使用expect.net開發一個可提供批次軟體升級佈署的script engine，提供使用者自定執行腳本執行大量遠端佈署的工作。
 
 ### 3. script engine需求
-實作script engine需求如下：
+script engine需求如下：
 1. 使用終端機軟體透過ssh協定連線到遠端linux主機控制系統
 2. 使用sftp協定傳遞檔案到遠端
 3. 掛載遠端伺服器的USB隨身碟
@@ -25,13 +25,13 @@ activestate expect和chaffee expect需另外再安裝tcl script engine；dejagnu
 #### 4-1. expect .net API介紹
 expect .net api常用功能如下
 ```cs
-//1. 建立執行命令
+//1. 建立執行命令物件
 ProcessSpawnable(execute_command, command_args)
 
 //2. 執行ISPawnable命令
 Session spawn = Expect.Spawn(ISpawnable);
 
-//3. 等待遠端的回應字串，若等到回應，將執行第二個參數定義的anonymous function，若等待時間太久超過timeout時間，則會發出exception
+//3. 等待遠端的回應字串，若等到回應，將執行第二個參數定義的anonymous function，若等待時間太久超過timeout時間，發出exception
 spawn.Expect("Password:", (s) => Console.WriteLine("found: " + s))
 
 //4. 設定expect的最長等待時間
@@ -42,7 +42,7 @@ spawn.send
 ```   
 
 #### 4-2. 使用這些api
-以使用plink登入遠端linux主機為例
+以使用plink登入遠端linux主機為例，以下展示使用expect.net實作的程式碼
 ```cs
 //開啟plink程式
 Session spawn = Expect.Spawn(new ProcessSpawnable("c:\\plink.exe","-l username -pw password xx.xx.xx.xx -t"));
@@ -66,9 +66,9 @@ spawn.Expect("root", (s) => Console.WriteLine("found: " + s));
 spawn.Send("chmod 777 /home/guest\n");
 ```
 #### 4-4. 錯誤處理
-考量系統管理者使用此工具時，大多針對大量設備執行工作，因此錯誤管理的機制非常重要，若執行的過程中有問題，必須清楚讓管理者清楚哪邊出問題，系統中針對每一台設備執行的過程，開啟檔案紀錄，若執行過程發生錯誤，系統會更改檔名，加註err在檔名中，管理者就可以清楚知道哪台設備更新過程出問題，進入處理。
+考量系統管理者使用此工具時，大多針對大量設備執行工作，因此錯誤管理的機制非常重要，若執行的過程中有問題，必須清楚讓管理者清楚哪邊出問題，script engine需針對每一台設備執行的過程，開啟檔案紀錄，若執行過程發生錯誤，engine會更改檔名，加註err在檔名中，管理者就可以清楚知道哪台設備更新過程出問題，進入處理。
 
-#### 4-5. 系統參數
+#### 4-5. engine執行參數
 系統設計兩個執行參數，參數說明如下：
 ```bs
 expect script_file_path remote_server_ip
