@@ -33,7 +33,7 @@ typedef unsigned int U32;
 //module return define
 #define MS8101_NOK 0
 #define MS8101_OK  1
-
+/*
 //for nc client acks to nc
 #define ACK_I         0x0000
 #define ACK_SDP       0x0001
@@ -52,7 +52,7 @@ typedef unsigned int U32;
 #define ACK_JEVSTART  0x001a
 #define ACK_JEVSTOP   0x001b
 #define ACK_MAX       0x0020
-
+*/
 // cmd 255-511 legacy ipcam command, not implement
 #define ACK_ARM_MODE         0x0100 //256
 #define ACK_SILENT_ARM_MODE  0x0101 //257
@@ -95,7 +95,7 @@ typedef unsigned int U32;
 #define EVENT_CAM_RSDVD "CAM_RSDVD"
 #define EVENT_CAM_SAVE1 "CAM_SAVE1"
 #define EVENT_IPCAM1    "IPCAM1"
-#define EVENT_DVR_MV    "DVR_MV"  //isDVR設為true，ref main.h isDVR
+#define EVENT_DVR_MV    "DVR_MV"  ///isDVR設為true，ref main.h isDVR
 #define EVENT_CAM_VIDEO "CAM_VIDEO"
 #define EVENT_CAM_JPGLV "CAM_JPGLV"
 #define EVENT_CAM_JPGEV "CAM_JPGEV"
@@ -110,31 +110,21 @@ typedef unsigned int U32;
 
 
 //MS8101 protocol util
-#define MS8101_HEADER_EVENT_TYPE(U16PACKET_HEADER)      (((U16PACKET_HEADER)>>4)&0xf)
-#define MS8101_HEADER_PAYLOAD_LENGTH(U16PACKET_HEADER)  ((((U16PACKET_HEADER)>>8)&0xff)|(((U16PACKET_HEADER)&0xf)<<8))
+//#define MS8101_HEADER_EVENT_TYPE(U16PACKET_HEADER)      (((U16PACKET_HEADER)>>4)&0xf)
+//#define MS8101_HEADER_PAYLOAD_LENGTH(U16PACKET_HEADER)  ((((U16PACKET_HEADER)>>8)&0xff)|(((U16PACKET_HEADER)&0xf)<<8))
+
+
+
+
+
+//nc server api
+///取得目前ms8101_command_handler陣列的元素數目
+int GetCount_ms8101_command_handler(struct _nc_controller_protocol *protocol);
+///檢查ncclient傳來的命令，是否為開始錄影
 #define ENABLE_RECORDING(MOVIE_START_TIME) MOVIE_START_TIME[0]!='0'
 
 #define PACKET_SPLITTER 0x20
 #define PACKET_END 0
-
-//nc receives ms8101 command api
-struct camcom_t;
-enum _MS8101_Command_Type {
-	STANDARD,
-	MAINTAIN
-};
-
-struct _MS8101_Command
-{
-	enum _MS8101_Command_Type type;
-	int commandid;
-	char cam_comm[10];
-	int (*toipcam_request)(struct camcom_t *camcom,u_int16_t ulen, int channel);
-	int (*toipcam_ack)(struct camcom_t *camcom, u_int16_t ulen, char *msg);
-	int (*send_cam)(struct camcom_t *camcom, u_int16_t ulen, int channel);
-	int (*cam_resp)(int channel);
-};
-#include "ms8101Impl.h"
 #define PACKET_SETVALUE(MEMBER,format,...) sprintf(MEMBER,format,##__VA_ARGS__);MEMBER##_END=PACKET_SPLITTER;
 #define SET_PACKET_END(MEMBER)   MEMBER##_END=PACKET_END
 
@@ -149,9 +139,6 @@ struct Event_PACKET_Part1;
 struct Event_PACKET_Part2;
 struct Event_PACKET_Part2 * SET_PACKET_CAMID_END_AND_LINK_PART2(struct Event_PACKET_Part1 *packet);
 struct Event_PACKET_Part2 * SET_PACKET_CAMID_VALUE_AND_LINK_PART2(struct Event_PACKET_Part1 *packet, char *format,...);
-int ms8101_standard_command_handling(struct camcom_t *camcom,u_int16_t ulen, char *msg, int channel);
-int ms8101_maintain_command_handling(struct camcom_t *camcom,u_int16_t ulen, char *msg);
-int cam_resp_handling(char *id, int channel);
 
 //ncclient api
 int send_cam_commd(int i, int cmd);
@@ -172,17 +159,18 @@ struct ms8101_header_bit
 
 #pragma pack(push)
 #pragma pack(1)
-struct RTP_FRAME
-{
-	U8 RTP_HEADER[12];
-	U8 RTP_PAYLOAD[1446];
-};
 
+#include "../rtp.h"
 struct SHORT_MSG
 {
 	U8 MSG[3];//SYN  or  ACK
 };
 
+///\struct Event_PACKET_Part1 ms8101.h ms8101.h
+///\brief ms8101協定中的event命令格式
+///
+///由於camid欄位長度不固定，EVENT_PACKET拆解成兩段：Event_PACKET_Part1和Event_PACKET_Part2
+///資料接收完畢後，呼叫SET_PACKET_CAMID_END_AND_LINK_PART2，即可把Event_PACKET_Part2接上Event_PACKET_Part1後
 struct Event_PACKET_Part1
 {
 	U8 Event_Keyword[9];
@@ -191,7 +179,7 @@ struct Event_PACKET_Part1
 	U8 StatusTime[10];
 	U8 StatusTime_END;
 
-	U8 Camid[15];//可變長度 max is 15
+	U8 Camid[15];///可變長度 max is 15
 	U8 Camid_END;
 };
 struct Event_PACKET_Part2
@@ -225,20 +213,23 @@ struct Event_PACKET_Part2
 	U8 CPE_ID[24];
 };
 
-//toipcam_client sends
 #define CAMID_LEN       20
+///\brief ipcam_client執行toipcam_request命令傳送的資料格式
+///
+///network transfer in little endian format
+///nc acks to toipcam_client camid=camxxxxxxx\\0\\ncode=camCommand\\nOK\\0
 struct camcom_t 
 {
     char  camid[CAMID_LEN];
     U16 command;   
     char  data[1024];   
-};//network transfer in little endian format
+};
 
-//nc acks to toipcam_client camid=camxxxxxxx\0\ncode=camCommand\nOK\0
-//refers to toipcam ln.102
 
-//nc sends to dvr
 #define PACKET_LEN	    1500
+///\brief nc執行send_cam命令傳送的資料格式
+///
+///network transfer camCommandLen and camcom_t_command in big endian
 union camCommand_t
 {
 	struct _camCommand_t_desc
@@ -250,7 +241,7 @@ union camCommand_t
 		U8 camCommand_Data;
 	}camCommand_t_desc;
 	U8 camCommand[PACKET_LEN];
-};//network transfer camCommandLen and camcom_t_command in big endian
+};
 
 //dvr sends or acks after camCommand_t
 struct ms8101_t

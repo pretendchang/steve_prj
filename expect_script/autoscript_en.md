@@ -6,7 +6,7 @@ It's a hard work for the IT system operators to upgrade program without any tool
 
 ### 2. Mass program installation tool kits
 Many tools support executing script automatically and controlling the machine remotely, such as putty, plink and telnet. But they have some limitations ex: su command.
-"Expect" technique overcomes the problem and it redirects the stdin and stdout to the program which runs like an operator executes the command with terminal
+"Expect" technique overcomes the problem and it redirects the stdin and stdout to the program which runs like an operator executes the command with terminal.
 There are four projects implemented with "expect" technique on the windows plateform --- activestate expect、chaffee expect、dejagnu and expect.net. Activestate expect and Chaffee expect must install tcl script engine previously and dejagnu runs on the cygwin. Those three ones have to install other tools. The last one "expect.net", it's a program library implemented with .net. It's easy to be familiar with it. So I choose it as my tool to solve the mass program upgrade issue.
 The article dicusses about developement of a script engine with expect.net. Operators can write a script for their deployment job easily.
 
@@ -20,7 +20,7 @@ The requirement is as following：
 6. Notify operators when something goes wrong
 
 ### 4. Implementation the engine
-#### 4-1. Introduction of the expect .net API
+#### 4-1. Introduction of the expect.net API
 Common used expect .net API is as following:
 ```cs
 //1. Instantiate a ISpawnable process
