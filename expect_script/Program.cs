@@ -209,7 +209,7 @@ namespace expecttest1
                         op2 = line.Substring(op2_index + 1);
                         param_arr = opcode.Split(splitter, 2);
                         //找出容量最小的磁碟
-                        ((Session)spawn_dictionary[param_arr[0]]).Send("lsblk -b | grep ^sd | awk -v min=100000000000000000 '{if(min>$4){min=$4;name=$1}}END {print name}'\n");
+                        ((Session)spawn_dictionary[param_arr[0]]).Send("lsblk -b -o KNAME,FSTYPE,SIZE | grep FAT | awk -v min=100000000000000000 '{if(min>$4){min=$4;name=$1}}END {print name}'\n");
                         ((Session)spawn_dictionary[param_arr[0]]).Expect("root", (s) => opcode = s);
                         //取出磁碟的dev名稱
                         int indexofsd = opcode.LastIndexOf("sd");

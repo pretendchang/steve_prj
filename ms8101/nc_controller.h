@@ -43,13 +43,12 @@ enum _Protocol_Command_Type {
 ///@}
 
 
-///\struct _MS8101_Command ms8101.h ms8101.h
 ///\brief 處理外部系統(ipcam_client)對nc的ms8101協定通訊
 ///
 ///前提：
 ///1. nc已收到該channel攝影機的SDP\n
 ///主流程：
-///1. ipcam_client送出稍後要送出的camcom_t長度(封包長度:2 byte)
+///1. ipcam_client送出稍後要送出的camcom_t長度(封包長度:2 byte) ms8101協定
 ///2. ipcam_client送出toipcam_request camcom_t
 ///3. nc.toipcam回應toipcam_ack to ipcam_client camid=camxxxxxxx
 ///4. nc在toipcam處理camcom_t封包
@@ -59,40 +58,43 @@ enum _Protocol_Command_Type {
 ///8. nc把camcommand dequeue到event queue
 ///9. 若步驟五ack是0xd config，nc會把此封包再傳到toipcam_client
 ///10. 若有執行步驟9 toipcam_client會再ack訊息給nc，由步驟1開始ack訊息的流程到步驟8<p>
-///新增ipcam功能實作方式：
-///1. 程式碼需include ms8101Impl.h
-///2. 定義實作新的_MS8101_Command物件
-///3. 將該物件設定於ms8101_command_handlers，沒有實作的function則定義NULL，handler檢查函式指標為NULL時，僅會執行預設的行為
+///實作_Protocol_Command新增ipcam功能 SOP:
+///1. 程式碼需include nc_controller.h
+///2. 定義實作新的_Protocol_Command物件
+///3. 將該物件沒有實作的function則定義NULL，handler檢查函式指標為NULL時，僅會執行預設的行為
+///4. 將該物件加入_Protocol_Command array中
 ///\snippet ms8101_command_handlers.h ms8101_command_handlers_label
 struct _Protocol_Command
 {
 	enum _Protocol_Command_Type type;
+	///_Protocol_Command訊息id，ms8101協定中，commandid用在toipcam_request toipcam_ack和send_cam
 	int commandid;
+	///_Protocol_Command訊息名稱，ms8101協定中用在cam_resp
 	char cam_comm[10];
 	
-	///\brief 處理由toipcam client送來的camcom封包
+	///\brief 處理由ipcam client送來的camcom封包
 	///
-	///\param camcom toipcam client送來的camcom封包
-	///\param ulen toipcam client送來的camcom封包的長度，? byte
-	///\param channel toipcam client送來的封包送到哪個攝影機處理，該攝影機所在的clients index
+	///\param camcom ipcam client送來的camcom封包
+	///\param ulen ipcam client送來的camcom封包的長度，? byte
+	///\param channel ipcam client送來的封包送到哪個攝影機處理，該攝影機所在的clients index
 	///\return 處理成功回傳MS8101_OK，否則回傳MS8101_NOK
 	///\ingroup ms8101test1
 	int (*toipcam_request)(void *camcom,u_int16_t ulen, int channel);
 	
-	///\brief 接收到由toipcam client送來的camcom封包後，回傳訊息
+	///\brief 接收到由ipcam client送來的camcom封包後，回傳訊息
 	///
-	///系統預設回傳無data資料的  
-	///若要修改回傳的內容，修改msg，實作toipcam_ack_xxx並加到ms8101_command_handlers中
-	///\param camcom toipcam client送來的camcom封包
-	///\param ulen toipcam client送來的camcom封包的長度，? byte
-	///\param msg 回傳給toipcam client的訊息
+	///系統預設回傳無data資料
+	///若要修改回傳的內容，修改msg，實作toipcam_ack_xxx並加到_Protocol_Command array(ms8101_command_handlers)中
+	///\param camcom ipcam client送來的camcom封包
+	///\param ulen ipcam client送來的camcom封包的長度，? byte
+	///\param msg 回傳給ipcam client的訊息
 	///\return 處理成功回傳MS8101_OK，否則回傳MS8101_NOK	
 	int (*toipcam_ack)(void *camcom, u_int16_t ulen, char *msg);
 	
-	///\brief 接收到由toipcam client送來的camcom命令後，nc將此命令發送到nc_client
+	///\brief 接收到由ipcam client送來的camcom命令後，nc將此命令發送到nc_client
 	///
 	///系統預設回傳不帶data的camCommand_t結構\n
-	///若要增加data欄位的內容，需實作send_cam_xxx並加到ms8101_command_handlers中
+	///若要增加data欄位的內容，需實作send_cam_xxx並加到_Protocol_Command array(ms8101_command_handlers)中
 	///\param camcom_t 送到nc_client的送camcom封包
 	///\param ulen 送到nc_client的送camcom_t封包的長度，? byte
 	///\param channel nc_client的channel號碼
@@ -107,18 +109,28 @@ struct _Protocol_Command
 };
 
 
-///\brief nc_controller_variable_metadata
+///\brief nc_controller session變數的metadata
+///
+///metadata定義變數的名稱和占用的記憶體大小
+///當session變數呼叫define_variable函數以特定名字定義後，名字將儲存在name欄位
+///取用時呼叫get_variable以名字來取得session變數指標
+///size定義變數占用的記憶體大小，當nc收到ncclient連線後，呼叫find_idle_channel時，nc使用malloc配置大小為size的記憶體空間
+///當該ncclient連線的session結束後，nc會呼叫free，釋放記憶體空間
 struct _nc_controller_variable_metadata
 {
 	char name[16];
 	int  size;
 };
 
-///\brief _nc_controller_variable
+///\brief _nc_controller session變數
+///
+///每個ncclient連線nc的session時，nc會依據metadata的定義初始化session variable
+///session variable以malloc配置足夠記憶體，指標存在ptr變數中
+///取用變數使用get_variable函數
 struct _nc_controller_variable
 {
 	struct _nc_controller_variable_metadata *metadata;
-	///define_variable函數中，以malloc初始化空間，系統結束時釋放記憶體
+	///nc收到ncclient連線後，呼叫find_idle_channel時，以malloc初始化空間，系統結束時釋放記憶體
 	long *ptr;
 };
 ///\brief ncclient到nc的通訊介面protocol格式
@@ -171,7 +183,7 @@ struct _nc_controller_variable
 ///\enduml
 ///\verbatim
 ///實作SOP
-///1. 實作_nc_controller_protocol結構所有函數，函數以static定義，避免命名衝突
+///1. 實作_nc_controller_protocol結構所有函數
 ///2. 宣告步驟1結構為Protocol_Plugin，指定Plugin的初始值
 ///nc_controller架構
 ///payload header + payload
@@ -330,7 +342,7 @@ struct _nc_controller_input
 ///取得event命令第一個frame的epoch time
 #define _Event_MovieStartTime 2
 
-//nc_controller api
+//nc_controller_action api
 ///\brief 設定檔名，開啟檔案，準備開始錄影
 ///\param index camera channel
 ///\param timeNow value from time(&timeNow)
@@ -471,5 +483,5 @@ int find_idle_channel(struct _nc_controller_protocol *protocol);
 int handle_standard_command(void *camcom,u_int16_t ulen, char *msg, int channel);
 int handle_maintain_command(struct _nc_controller_protocol *protocol, void *camcom,u_int16_t ulen, char *msg);
 int handle_cam_resp(struct _nc_controller_protocol *protocol, char *id, int channel);
-struct _Protocol_Command * get_protocol_command(int channel);
+
 #endif
