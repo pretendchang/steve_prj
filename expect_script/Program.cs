@@ -7,14 +7,13 @@ using ExpectNet;
 using System.Threading;
 using System.IO;
 using System.Collections;
-//using System.Text.RegularExpressions;
 
-namespace expecttest1
+namespace expect_script
 {
     class Program
     {
-        static string logfilename="";
-        static FileStream fs;
+        static string logfilename = "";
+        static FileStream fs, outfs;
         static int error = 0;
         static int check_error(string opcode)
         {
@@ -40,7 +39,7 @@ namespace expecttest1
         }
         static void renamelog()
         {
-            System.IO.File.Move(logfilename, logfilename+"_err");
+            System.IO.File.Move(logfilename, logfilename + "_err");
         }
         static FileStream openlog(string ip)
         {
@@ -48,19 +47,51 @@ namespace expecttest1
 
             return File.OpenWrite(logfilename);
         }
+        static FileStream openoutlog(string filename)
+        {
+            return File.Open(filename, FileMode.Append);
+            //return File.OpenWrite(filename);
+        }
+        static void writeoutlog(FileStream _fs, string s)
+        {
+            StreamWriter sw = new StreamWriter(_fs);
+            sw.WriteLine(s);
+            sw.Flush();
+            Console.WriteLine(s);
+        }
+        static string get_input_date(string s)
+        {
+            int i = s.IndexOf("2016");
+            string ret = s.Substring(i, 8);
+            return ret;
+        }
+        static string get_wc_count(string s)
+        {
+            Console.WriteLine("(begin)" + s + "(end)");
+            int i1 = s.LastIndexOf('\n');
+            int i2 = s.LastIndexOf('\n', i1 - 1);
+            string ret = s.Substring(i2+1,i1-i2-1);
+            return ret;
+        }
         static void Main(string[] args)
         {
             //第一個參數是欲執行script檔路徑
             //第二個參數是script檔中的<?ip>變數的值
+            string thisline="";
             try
             {
                 //系統中spawn和assignpid兩個指令，會定義物件，script中的第二個參數物件名字就放在dictionary的key中，對應expect.net物件，儲存在value
                 Dictionary<string, Object> spawn_dictionary = new Dictionary<string, Object>();
                 fs = openlog(args[1]);
+                if (args.Length==3)
+                {
+                    outfs = openoutlog(args[2]);
+                }
                 foreach (string line in File.ReadLines(args[0]))
                 {
                     //建立一個spawnobject物件，執行execute_command command_args
                     //spawn spawnobject "execute_command","command_args"
+                    thisline = line;
                     if (line.StartsWith("spawn") == true)
                     {
                         int op1_index, op2_index;
@@ -76,6 +107,7 @@ namespace expecttest1
                         param_arr[0] = param_arr[0].Replace("\"", ""); param_arr[1] = param_arr[1].Replace("\"", "");
                         param_arr[1] = param_arr[1].Replace("<?ip>", args[1]);
                         Session spawn = Expect.Spawn(new ProcessSpawnable(param_arr[0], param_arr[1]));
+                        spawn.Timeout = 30000;
                         spawn_dictionary.Add(op1, spawn);
                         if (param_arr[0].Contains("plink"))
                             ((Session)spawn_dictionary[op1]).Expect("$", (s) => writelog(fs, "ok: " + s));
@@ -124,9 +156,31 @@ namespace expecttest1
 
                         param_arr = opcode.Split(splitter, 2);
                         //Console.WriteLine(opcode + ":" + op1 + ":" + op2 + ":" + param_arr[0] + ":" + param_arr[1]);
-                        ((Session)spawn_dictionary[param_arr[0]]).Timeout = 30000;//set to 30s
+                        ((Session)spawn_dictionary[param_arr[0]]).Timeout = 300000;//set to 30s
                         ((Session)spawn_dictionary[param_arr[0]]).Send(op2);
                         ((Session)spawn_dictionary[param_arr[0]]).Expect(op1, (s) => writelog(fs, "ok: " + s));
+                        ((Session)spawn_dictionary[param_arr[0]]).Timeout = 2500;//set back to default value 2.5s
+                    }
+                    else if (line.Contains(".expect_output") == true)
+                    {
+                        Console.WriteLine("expect_output");
+                        int op1_index, op2_index;
+                        string opcode, op1, op2;
+                        string[] param_arr;
+                        char[] splitter = { '.' };
+
+                        op1_index = line.IndexOf(' ');
+                        opcode = line.Substring(0, op1_index);
+                        op2_index = line.IndexOf(' ', op1_index + 1);
+                        op1 = line.Substring(op1_index + 1, op2_index - op1_index - 1).Replace("\"", "");
+                        op2 = line.Substring(op2_index + 1).Replace("\"", "");
+                        op2 = op2.PadRight(op2.Length + 1, '\n');
+
+                        param_arr = opcode.Split(splitter, 2);
+                        Console.WriteLine("expect_output/" + opcode + ":" + op1 + ":" + op2 + ":" + param_arr[0] + ":" + param_arr[1]);
+                        ((Session)spawn_dictionary[param_arr[0]]).Timeout = 30000;//set to 30s
+                        ((Session)spawn_dictionary[param_arr[0]]).Send(op2);
+                        ((Session)spawn_dictionary[param_arr[0]]).Expect(op1, (s) => writeoutlog(outfs, args[1] + "," + get_input_date(op2) + "," + get_wc_count(s)));
                         ((Session)spawn_dictionary[param_arr[0]]).Timeout = 2500;//set back to default value 2.5s
                     }
                     //執行do_something後，等待終端機回傳內含expect_string字串，若在timeout時間內等到，則印出字串
@@ -208,8 +262,8 @@ namespace expecttest1
                         op1 = line.Substring(op1_index + 1, op2_index - op1_index - 1).Replace("\"", "");
                         op2 = line.Substring(op2_index + 1);
                         param_arr = opcode.Split(splitter, 2);
-                        //找出容量最小的磁碟
-                        ((Session)spawn_dictionary[param_arr[0]]).Send("lsblk -b -o KNAME,FSTYPE,SIZE | grep FAT | awk -v min=100000000000000000 '{if(min>$4){min=$4;name=$1}}END {print name}'\n");
+                        //找出fat格式容量最小的磁碟
+                        ((Session)spawn_dictionary[param_arr[0]]).Send("lsblk -b -o KNAME,FSTYPE,SIZE | grep \'[fF][aA][tT]\' | awk -v min=100000000000000000 '{if(min>$4){min=$4;name=$1}}END {print name}'\n");
                         ((Session)spawn_dictionary[param_arr[0]]).Expect("root", (s) => opcode = s);
                         //取出磁碟的dev名稱
                         int indexofsd = opcode.LastIndexOf("sd");
@@ -217,6 +271,12 @@ namespace expecttest1
                         {
                             error = 1;
                             writelog(fs, "error:mount usb error");
+                            ((Session)spawn_dictionary[param_arr[0]]).Send("lsblk -b -o KNAME,FSTYPE,SIZE | grep \'[fF][aA][tT]\' | awk -v min=100000000000000000 '{if(min>$4){min=$4;name=$1}}END {print name}'\n");
+                            ((Session)spawn_dictionary[param_arr[0]]).Expect("root", (s) => opcode = s);
+
+                            ((Session)spawn_dictionary[param_arr[0]]).Send("lsblk -b -o KNAME,FSTYPE,SIZE\n");
+                            ((Session)spawn_dictionary[param_arr[0]]).Expect("root", (s) => writelog(fs, "lsblk: " + s));
+                            throw new Exception("mount usb error");
                         }
                         string usbname = opcode.Substring(indexofsd, 3);
                         ((Session)spawn_dictionary[param_arr[0]]).Send("mount /dev/" + usbname + "1 " + op2 + "\n");
@@ -228,17 +288,21 @@ namespace expecttest1
             }
             catch (Exception e)
             {
-                writelog(fs, e.ToString());
+                writelog(fs, "execute "+thisline+" error: "+e.ToString());
                 //Console.Error.WriteLine(e);
                 error = 1;
             }
             finally
             {
                 fs.Close();
+                if (args.Length == 3)
+                {
+                    outfs.Close();
+                }
                 if (error == 1)
                     renamelog();
             }
-           // Console.ReadKey();
+            // Console.ReadKey();
         }
 
         static void testCommand(string ts)

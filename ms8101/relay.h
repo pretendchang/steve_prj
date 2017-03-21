@@ -51,6 +51,7 @@ int forward_video_stream(void *_infos, unsigned char *stream_start, int streamle
 int forward_audio_stream(void *_infos, unsigned char *stream_start, int streamlen);
 int disable_forward_stream(void *_infos);
 int set_sdp2relay(void *_infos, int val);
+int get_cmdState(struct _streaming_server_info* streaming_server_info);
 
 // Socket data type 
 #define TYPE_SDP  		  0x0000
@@ -112,6 +113,6 @@ typedef struct
 	u8 data[BUFSIZE_DATA];
 } SOCKET_DATA_INFO_T;	
 
-void GetSendPacket(SOCKET_DATA_INFO_T *data, const int type, int channel);
-void GetReadPacket(const SOCKET_DATA_INFO_T *data, int relayidx, int channel);
+void GetSendPacket(SOCKET_DATA_INFO_T *data, const int type, int session_idx);
+void GetReadPacket(const SOCKET_DATA_INFO_T *data, int relayidx, int session_idx);
 #endif
