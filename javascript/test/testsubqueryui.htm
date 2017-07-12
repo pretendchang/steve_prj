@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jQuery UI Datepicker - Default functionality</title>
+<link href="css/jquery-ui.css" rel="stylesheet">
+
+<script type="text/javascript" src="jquery/jquery-2.0.0.min.js"></script>
+<script type="text/javascript" src="jquery/jquery-ui.min.js"></script>
+
+</head>
+<body>
+   <script>
+   var subqueryui3;
+  $( function() {
+	var testinput=
+{
+ "subquery":[
+//   選項的名字	        選項的值         選項要顯示的html
+	 ["無子查詢",         "1", ""],
+	 ["指定特定期間內的資料","2", "日期起訖<span id=$sub_daterangepickerui></span>"],
+	 ["指定速率",         "3", "速率<input type=text id=$sub_subquery3 name=$sub_subquery3 size=2>"]
+ 	]	
+};
+  
+  
+	$("#subqueryui1").subqueryui(testinput.subquery);
+	$("#subqueryui2").subqueryui(testinput.subquery);
+	subqueryui3 = $("#subqueryui3").subqueryui(testinput.subquery);
+	subqueryui3.getNode("$sub_daterangepickerui").daterangepickerui();
+  } );
+  function test()
+  {
+	//var aa = subqueryui3.getNode("$sub_subquery3");
+	alert(subqueryui3.getNode("$sub_daterangepickerui").daterangepickerui().getrange1());
+	alert(subqueryui3.getNode("$sub_daterangepickerui").daterangepickerui().getrange2());
+	alert(subqueryui3.getNode("$sub_subquery3").val());
+  }
+  </script>
+<script type="text/javascript" src="../subqueryui.js"></script> 
+<script type="text/javascript" src="../daterangepickerui.js"></script> 
+<span id=subqueryui1></span>
+<span id=subqueryui2></span>
+<span id=subqueryui3></span>
+<button onclick="test()">test</button>
+
+ 
+</body>
+</html>

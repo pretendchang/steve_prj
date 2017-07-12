@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>jQuery UI Datepicker - Default functionality</title>
+<link href="css/jquery-ui.css" rel="stylesheet">
+
+<script type="text/javascript" src="jquery/jquery-2.0.0.min.js"></script>
+<script type="text/javascript" src="jquery/jquery-ui.min.js"></script>
+
+</head>
+<body>
+ 
+<p>Date: <span id=daterangepickerui></span>
+<script type="text/javascript" src="../daterangepickerui.js"></script> 
+<input type=text id=aa>  
+   <script>
+  $( function() {
+	var datepicker = $("#daterangepickerui").daterangepickerui();
+	console.log(datepicker );
+  } );
+  </script>
+  <script>
+  function test()
+  {
+	var patt = new RegExp(/[0-9]+/i);
+	alert(patt.test($("#aa").val()));
+
+  }
+  </script>
+ 
+<button onclick=test()>test</button>
+</body>
+</html>

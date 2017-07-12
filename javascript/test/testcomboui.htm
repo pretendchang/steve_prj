@@ -1,0 +1,192 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+<title>子查詢工具</title>
+</head>
+<body>
+<link href="css/jquery-ui.css" rel="stylesheet">
+<script type="text/javascript" src="jquery/jquery-2.0.0.min.js"></script>
+<script type="text/javascript" src="jquery/jquery-ui.min.js"></script>
+<script type="text/javascript" src="../customtable.js"></script>
+<script type="text/javascript" src="../subqueryui.js"></script>
+<script type="text/javascript" src="../daterangepickerui.js"></script>
+<style type="text/css">
+.modal1{
+    z-index: 1;
+    padding: 10px 10px 5px;
+    background: rgba(255, 255, 255, 0.5);
+    left: 0;
+    top: 0;
+    color: #000;
+    position: fixed;
+    width: 100%;
+    height: 100%;
+    text-align: center;
+    box-shadow: 2px 2px 10px;
+    border-radius: 5px;
+}
+#rechecktable {
+    border-collapse: collapse;
+    width: 70%;
+}
+
+#rechecktable td, #rechecktable th {
+    border: 1px solid #ddd;
+    padding: 8px;
+}
+
+#rechecktable tr:nth-child(even){background-color: #E2E4FF;}
+
+#rechecktable th {
+    padding-top: 12px;
+    padding-bottom: 12px;
+    text-align: left;
+    /*background-color: #4CAF50;*/
+    background-color: #35414F;
+    color: #E1E463;
+}
+</style>
+<script>
+var testinput=
+	{"rechecklist":[
+			["新申裝", "九大異動(123)",["mod","ftth","專線"]],
+			["拆", "九大異動(12)",["mod","ftth","專線"]],
+			["VOTZ", "新需求(44)",["mod","ftth","專線"]]
+		],
+	 "subquery":[
+		 ["無子查詢","0",""],
+		 ["指定特定期間內的資料","1","日期起訖<span id=$sub_daterangepickerui uitype='daterangepickerui'></span>"],
+		 ["指定速率","2","速率<input type=text id=$sub_subquery3 name=$sub_subquery3 size=2>"]
+	 	]	
+	};
+
+jQuery.expr[':'].regex = function(elem, index, match) {
+    var matchParams = match[3].split(','),
+        validLabels = /^(data|css):/,
+        attr = {
+            method: matchParams[0].match(validLabels) ? 
+                        matchParams[0].split(':')[0] : 'attr',
+            property: matchParams.shift().replace(validLabels,'')
+        },
+        regexFlags = 'ig',
+        regex = new RegExp(matchParams.join('').replace(/^\s+|\s+$/g,''), regexFlags);
+    return regex.test(jQuery(elem)[attr.method](attr.property));
+}
+
+var init=0;
+var tasklistcount=0;
+var packet="";
+$body = $("body");
+var subquery_arr;
+$(document).on({
+    ajaxStart: function() { $body.addClass("loading");    },
+     ajaxStop: function() { $body.removeClass("loading"); }    
+});
+$(document).ready(function(){
+	var i=0;
+	
+	var customtableuioptions={
+		colname:["項目標題","項目類型","抽驗筆數","抽驗設備編號尾碼","抽驗設備類型","參考文件","子查詢條件"]
+	};
+	var customtable = $("#rechecktable").customtableui(customtableuioptions);
+	function loadtable(data){
+        	tasklistcount = data.rechecklist.length;
+			subquery_arr = new Array(tasklistcount);
+        	$.each(data.rechecklist, function(index, element) {
+        		var qutype="";
+        		$.each(element[2], function(qutypeidx, qutypeelm){
+        			qutype+="<option value="+qutypeidx+">"+qutypeelm+"</option>";
+        		});
+        		
+        		//alert(element[0]);
+				var rowelm = [element[0], 
+							  element[1], 
+							  '<input type=text checktype=number id=testcount'+i+' value=3 size=1>',
+							  '<input type=text checktype=numberone id=testidtail'+i+' value=0 size=1>',
+							  '<select id=testqutype'+i+'>'+qutype+'</select>',
+							  "6",
+							  "<span id=$sub_subqueryui1 uitype='subqueryui'></span>"];
+
+				customtable.addrow(rowelm);
+				i++;
+        	});
+			
+			$.each($("span[uitype='subqueryui']"), function(index, elm) {
+				subquery_arr[index] = $(elm).subqueryui(testinput.subquery);
+			});
+			$.each($("span[uitype='daterangepickerui']"), function(index, elm) {
+				$(elm).daterangepickerui();
+			});
+        	$('#loading').hide(500);
+    	}
+		
+		loadtable(testinput);
+});
+
+	var checkinputconf=[
+		["number",new RegExp(/^[0-9]+$/i),"請輸入正確數字"],
+		["numberone",new RegExp(/^[0-9]$/i),"請輸入正確一位數字"]
+	];
+
+function checkinput()
+{
+	var valid=true;
+	$.each(checkinputconf, function(index, elm){
+		$.each($("input[checktype='"+elm[0]+"']"), function(index){
+			var patt = elm[1];
+			if(!patt.test($(this).val()))
+			{
+				alert(elm[2]);
+				$(this).focus();
+				valid=false;
+				return false;
+			}
+		});
+		if(!valid)
+			return false;
+	});
+	return valid;
+}
+
+
+function getvalue()
+{
+	packet="";
+	packet+="[";
+	for(j=0;j<tasklistcount; j++)
+	{
+		if(j!=0)
+			packet+=",[";
+		else
+			packet+="[";
+			
+		packet+=subquery_arr[j].getSelectedValue();	
+		if(subquery_arr[j].getSelectedValue()=="1")
+		{
+			packet+=",[";
+			packet+=subquery_arr[j].getNode("$sub_daterangepickerui").daterangepickerui().getrange1();
+			packet+=",";
+			packet+=subquery_arr[j].getNode("$sub_daterangepickerui").daterangepickerui().getrange2();
+			packet+="]";
+		}
+		else if(subquery_arr[j].getSelectedValue()=="2")
+		{
+			packet+=",[";
+			packet+=subquery_arr[j].getNode("$sub_subquery3").val();
+			packet+="]";
+		}
+		packet+="]";
+	}
+	packet+="]";
+	alert(packet);
+}
+</script>
+
+<center>
+<div style="overflow-x:auto;">
+<table border=1 id=rechecktable><thead></thead>
+</table></div></center>
+<button onclick=getvalue()>test</button>
+</body>
+</html>
