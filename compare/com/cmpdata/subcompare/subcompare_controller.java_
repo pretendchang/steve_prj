@@ -1,0 +1,1302 @@
+package com.cmpdata.subcompare;
+
+import java.io.PrintWriter;
+import java.io.UnsupportedEncodingException;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Set;
+import java.util.TreeMap;
+
+import javax.script.ScriptException;
+
+import com.cmpdata.CmpContext;
+import com.cmpdata.JSONHandler;
+import com.cmpdata.TreeMapUtil;
+import com.cmpdata.genericCmpDataUtil;
+import com.cmpdata.columnprop.ExecOnPropImpl_ResultSet2TreeMap;
+import com.cmpdata.columnprop.ExecOnPropImpl_checkPK;
+import com.cmpdata.columnprop.ExecOnPropImpl_setPKDisplay;
+import com.cmpdata.columnprop.ExecOnPropImpl_setPKShowTreeMap;
+import com.cmpdata.columnprop.ExecOnPropImpl_setPKTreeMap;
+import com.cmpdata.columnprop.ExecOnPropImpl_setPstmt;
+import com.cmpdata.columnprop.ExecOnPropMethod_AND;
+import com.cmpdata.columnprop.ExecOnPropMethod_OR;
+import com.cmpdata.controller.GlobalVariable;
+import com.cmpdata.rst.PKDisplay;
+import com.cmpdata.rst.RstFormat;
+import com.cmpdata.scripting.CheckScript;
+import com.sqlparse.Builder;
+import com.sqlparse.Parser;
+import com.sqlparse.SQLExpression;
+import com.sqlparse.SQLOrderBy;
+import com.sqlparse.SQLStatement;
+import com.steve.db.data.manager.DSManager;
+import com.steve.db.data.manager.InputPstmt;
+
+import com.cmpdata.*;
+import com.cmpdata.logic.*;
+
+
+public class subcompare_controller {
+	private Cmpsource left;
+	private Cmpsource right;
+	private String logformatsplitter=",";
+	private RstFormat format;
+	private int dbgmode=0;
+	private int resultsetsize=0;
+	private CheckScript case2checkScript;
+	private boolean case2lazyInit=false;
+	
+	private SQLStatement leftfirstNowStmt;
+	private SQLStatement rightfirstNowStmt;
+	private HashMap<String,CmpTask> threadtaskmap;
+	private HashMap<String,Integer> threadrunidmap;
+	private PrintWriter errpk;
+	private String logformat;
+	public final PKDisplay pkdisplay; 
+	private static subcompare_controller controller = null;
+	synchronized public static subcompare_controller subcompare_controllerfactory
+	(
+		Cmpsource left,
+		Cmpsource right,
+		CheckScript case2checkScript,
+		boolean case2lazyInit,
+		SQLStatement leftfirstNowStmt,
+		SQLStatement rightfirstNowStmt,
+		HashMap<String,CmpTask> threadtaskmap,
+		HashMap<String,Integer> threadrunidmap,
+		String logformat,
+		String logformatsplitter,
+		PrintWriter errpk,
+		RstFormat format,
+		int dbgmode
+	)
+	{
+		if(controller == null)
+		{
+			controller = 
+					   new subcompare_controller
+					   (
+							left,
+							right,
+							case2checkScript,
+							case2lazyInit,
+							leftfirstNowStmt,
+							rightfirstNowStmt,
+							threadtaskmap,
+							threadrunidmap,
+							logformat,
+							logformatsplitter,
+							errpk,
+							format,
+							dbgmode						   
+					   );
+		}
+		return controller;
+	}
+	
+	private subcompare_controller
+	(
+		Cmpsource _left,
+		Cmpsource _right,
+		CheckScript _case2checkScript,
+		boolean _case2lazyInit,
+		SQLStatement _leftfirstNowStmt,
+		SQLStatement _rightfirstNowStmt,
+		HashMap<String,CmpTask> _threadtaskmap,
+		HashMap<String,Integer> _threadrunidmap,
+		String _logformat,
+		String _logformatsplitter,
+		PrintWriter _errpk,
+		RstFormat _format,
+		int _dbgmode			
+	)
+	{
+		left = _left;
+		right = _right;
+		case2checkScript = _case2checkScript;
+		case2lazyInit = _case2lazyInit;
+		leftfirstNowStmt = _leftfirstNowStmt;
+		rightfirstNowStmt = _rightfirstNowStmt;
+		threadtaskmap = _threadtaskmap;
+		threadrunidmap = _threadrunidmap;
+		logformat = _logformat;
+		logformatsplitter = _logformatsplitter;
+		errpk = _errpk;
+		format = _format;
+		dbgmode = _dbgmode;		
+		
+		pkdisplay = new PKDisplay()
+		 {
+			public StringBuffer Display(List<String> pks, TreeMap<String,Object> rs, String splitter)
+			{
+				return subcompare_setPKDisplay(pks, rs, splitter);
+			}
+		 };
+	}
+	
+	//cmpdataexception
+	public StringBuffer subcompare_setPKWhere(List<String> pks, int leftright, int setprefix, int lrssize)
+	{
+		StringBuffer sb = new StringBuffer();
+		  sb.append("(");
+		  for(int i=0;i<lrssize;i++)
+		  {
+			  if(sb.length()>2)
+				  sb.append(" or ");
+			  sb.append("(");
+			  for(int j=0; j<pks.size();j++)
+			  {
+				  String realcolumn=genericCmpDataUtil.getRealColumn(pks.get(j));
+				  
+				  ColumnMeta cmp = genericCmpDataUtil.findCmpPair(leftright, realcolumn);
+				  if(cmp==null)
+				  {
+					  //throw exception
+				  }
+				  String retcolumn=null;
+				  if(setprefix ==0)
+				  {
+					  retcolumn=realcolumn;
+				  }
+				  else
+				  {
+					  retcolumn=pks.get(j);
+				  }
+				  
+				  //todo hardcode
+				  //需處理sql的index改變pk的規則
+				  if(leftright==genericCmpDataConstant.CmpLeftElm)
+				  {
+					  retcolumn = Builder.checkalias(leftfirstNowStmt,retcolumn);
+				  }
+				  
+				  if(j>0)
+					  sb.append(" and ");
+				  
+				  if(leftright==genericCmpDataConstant.CmpRightElm)
+					  sb.append(cmp.getPKWhere(retcolumn, right.getDBInterface(), genericCmpDataConstant.CONSTANT_STRING_NULL));
+				  else
+					  sb.append(cmp.getPKWhere(retcolumn, left.getDBInterface(), genericCmpDataConstant.CONSTANT_STRING_NULL));
+				  
+			  }
+			  sb.append(")");
+		  }
+		  sb.append(")");
+		  return sb;
+	}
+	
+	public SQLExpression subcompare_buildPKWherePtn(List<String> pks, int leftright, int setprefix)
+	{
+		SQLExpression lrslayer = null;
+		for(int j=0; j<pks.size();j++)
+		  {
+			  SQLExpression pkslayer = null;
+			  String realcolumn=genericCmpDataUtil.getRealColumn(pks.get(j));
+			  
+			  ColumnMeta cmp = genericCmpDataUtil.findCmpPair(leftright, realcolumn);
+			  if(cmp==null)
+			  {
+				  //throw exception
+			  }
+	
+			  String retcolumn=null;
+			  if(setprefix ==0)
+			  {
+				  retcolumn=realcolumn;
+			  }
+			  else
+			  {
+				  retcolumn=pks.get(j);
+			  }
+			  
+
+			  if(leftright==genericCmpDataConstant.CmpLeftElm)
+			  {
+				  CmpTask task = threadtaskmap.get(Long.toString(Thread.currentThread().getId(), 10));
+				  retcolumn = Builder.checkalias(leftfirstNowStmt,retcolumn);
+			  }
+			  else if(leftright==genericCmpDataConstant.CmpRightElm)
+			  {
+				  CmpTask task = threadtaskmap.get(Long.toString(Thread.currentThread().getId(), 10));
+				  retcolumn = Builder.checkalias(rightfirstNowStmt,retcolumn);
+			  }
+			  if(leftright==genericCmpDataConstant.CmpRightElm)
+				  pkslayer = cmp.buildPKWherePtn(retcolumn, right.getDBInterface(), genericCmpDataConstant.CONSTANT_STRING_NULL);
+			  else
+				  pkslayer = cmp.buildPKWherePtn(retcolumn, left.getDBInterface(), genericCmpDataConstant.CONSTANT_STRING_NULL);
+
+			  lrslayer = Builder.addExpression(lrslayer, Builder.OP_AND, pkslayer);
+		  }
+		return Builder.addParenthese(lrslayer);
+	}
+	/*
+	public SQLExpression subcompare_setPKWhere_jsql(String dbtype, List<String> pks, int leftright, int setprefix, int lrssize)
+	{
+		SQLExpression ret = null;
+
+		  for(int i=0;i<lrssize;i++)
+		  {
+			  SQLExpression lrslayer = null;
+			  for(int j=0; j<pks.size();j++)
+			  {
+				  SQLExpression pkslayer = null;
+				  String realcolumn=genericCmpDataUtil.getRealColumn(pks.get(j));
+				  
+				  ColumnMeta cmp = genericCmpDataUtil.findCmpPair(leftright, realcolumn);
+				  if(cmp==null)
+				  {
+					  //throw exception
+				  }
+
+				  String retcolumn=null;
+				  if(setprefix ==0)
+				  {
+					  retcolumn=realcolumn;
+				  }
+				  else
+				  {
+					  retcolumn=pks.get(j);
+				  }
+				  
+
+				  if(leftright==genericCmpDataConstant.CmpLeftElm)
+				  {
+					  retcolumn = Builder.checkalias(leftfirstNowStmt,retcolumn);
+				  }
+				  else if(leftright==genericCmpDataConstant.CmpRightElm)
+				  {
+					  CmpTask task = threadtaskmap.get(Long.toString(Thread.currentThread().getId(), 10));
+					  retcolumn = Builder.checkalias(rightfirstNowStmt,retcolumn);
+				  }
+				  
+				  if(leftright==genericCmpDataConstant.CmpRightElm)
+					  pkslayer = cmp.buildPKWherePtn(retcolumn, right.getDBInterface(), genericCmpDataConstant.CONSTANT_STRING_NULL);
+				  else
+					  pkslayer = cmp.buildPKWherePtn(retcolumn, left.getDBInterface(), genericCmpDataConstant.CONSTANT_STRING_NULL);
+				  
+				  lrslayer = Builder.addExpression(lrslayer, Builder.OP_AND, pkslayer);
+			  }
+			  ret = Builder.addExpression(ret, Builder.OP_OR, lrslayer);
+		  }
+		  return ret;
+	}*/
+	/*
+	public StringBuffer subcompare_setPKOrder(String dbtype,List<String> pks, int leftright)
+	{
+		StringBuffer sb = new StringBuffer();
+		  sb.append(" order by ");
+		  for(int i=0;i<pks.size();i++)
+		  {
+			  String realcolumn=genericCmpDataUtil.getRealColumn(pks.get(i));
+			  
+			  ColumnMeta cmp = genericCmpDataUtil.findCmpPair(leftright, realcolumn);
+			  
+			  if(cmp==null)
+			  {
+				  //throw exception
+			  }
+			  if(i>0)
+				  sb.append(" , ");
+//todo
+
+			  if(leftright==genericCmpDataConstant.CmpRightElm)
+				  sb.append(cmp.getPKOrder(pks.get(i), right.getDBInterface(), genericCmpDataConstant.CONSTANT_STRING_NULL));
+			  else
+				  sb.append(cmp.getPKOrder(pks.get(i), left.getDBInterface(), genericCmpDataConstant.CONSTANT_STRING_NULL));
+		  }
+		  return sb;
+	}*/
+	public List<SQLOrderBy> subcompare_setPKOrder_jsql(List<String> pks, int leftright)
+	{
+		List<SQLOrderBy> ret = new ArrayList<SQLOrderBy>();
+
+		  for(int i=0;i<pks.size();i++)
+		  {
+			  String realcolumn=genericCmpDataUtil.getRealColumn(pks.get(i));
+			  
+			  ColumnMeta cmp = genericCmpDataUtil.findCmpPair(leftright, realcolumn);
+			  
+			  if(cmp==null)
+			  {
+				  //throw exception
+			  }
+//todo
+			  
+			  if(leftright==genericCmpDataConstant.CmpRightElm)
+				  ret = cmp.getPKOrder_jsql(pks.get(i), right.getDBInterface(), genericCmpDataConstant.CONSTANT_STRING_NULL);
+			  else
+				  ret = cmp.getPKOrder_jsql(pks.get(i), left.getDBInterface(), genericCmpDataConstant.CONSTANT_STRING_NULL);
+		  }
+		  return ret;
+	}
+	public StringBuffer subcompare_setPKDisplay(List<String> pks, TreeMap<String,Object> rs, String splitter)
+	{
+		StringBuffer pk = new StringBuffer();
+		  for(int i=0;i<pks.size();i++)
+		  {
+			  if(i>0)
+				  pk.append(splitter);
+			  
+			  String realcolumn=genericCmpDataUtil.getRealColumn(pks.get(i));
+
+			  pk.append(JSONHandler.getColumnValueString(TreeMapUtil.getString(rs.get(realcolumn))));
+		  }
+		  return pk;
+	}
+	private StringBuffer subcompare_setPKDisplay(List<String> pks, TreeMap<String,Object> rs)
+	{
+		return subcompare_setPKDisplay(pks, rs, "_");
+	}
+	public StringBuffer subcompare_setPKDisplay(List<String> pks, int leftright, ResultSet rs) throws SQLException
+	{
+		StringBuffer pk = new StringBuffer();
+		  for(int i=0;i<pks.size();i++)
+		  {
+			  if(i>0)
+				  pk.append("_");
+			  
+			  String realcolumn=genericCmpDataUtil.getRealColumn(pks.get(i));
+				
+				ColumnMeta cmp = genericCmpDataUtil.findCmpPair(leftright, realcolumn);
+				  if(cmp==null)
+				  {
+					  //throw exception
+				  }
+				  int columnidx = rs.findColumn(realcolumn);
+				List<String> props = cmp.getProps();
+				
+				//String o1 = right.getResultSetValue(rs, columnidx);
+				//byte []o2 = right.getResultSetByte_ignoreException(rs, columnidx);
+				//String value = (String) ExecOnPropMethod_OR.exec(ExecOnPropImpl_setPKDisplay.impls, props, o1, new Object[]{o2});
+				  
+				if(props==null)
+				  {
+					  pk.append(JSONHandler.getTrimColumnValueString(right.getResultSetValue(rs, columnidx)));
+					  continue;
+				  }
+				  String value=null;
+				  if(props.indexOf("chinese")!=-1)
+				  {
+					  try {
+						  byte []v = rs.getBytes(realcolumn);
+						  if(v != null)
+							  value = new String(v,"ms950");
+						  else
+							  value="${NULL}";
+						//pk.append(new String(rs.getBytes(realcolumn),"ms950"));
+					} catch (UnsupportedEncodingException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				  }
+				  else
+					  value=right.getResultSetValue(rs, columnidx);
+				  
+				  if(props.indexOf("untrim")!=-1)
+				  {
+					  value = JSONHandler.getColumnValueString(value);
+				  }
+				  else
+					  value=JSONHandler.getTrimColumnValueString(value);
+				  pk.append(value);
+		  }
+		  return pk;
+	}
+	public TreeMap<String, Object> subcompare_setPKTreeMap(List<String> pks, int pkleftright, int rsleftright, ResultSet rs) throws SQLException
+	{
+		TreeMap<String, Object> pk = new TreeMap<String, Object>();
+		  for(int i=0;i<pks.size();i++)
+		  {
+			  String realcolumn = genericCmpDataUtil.getRealColumn(pks.get(i));
+				
+				ColumnMeta rscmp = genericCmpDataUtil.findCmpPair(rsleftright,realcolumn);
+				ColumnMeta pkcmp = genericCmpDataUtil.findCmpPair(pkleftright,realcolumn);
+				String rsrealcolumn = rscmp.getName();
+
+				  if(rscmp==null)
+				  {
+					  //throw exception
+				  }			  
+				  
+				List<String> leftprops = pkcmp.getProps();
+				int columnidx = rs.findColumn(rsrealcolumn);
+				//byte []o2 = right.getResultSetByte_ignoreException(rs, columnidx);
+				//String value=(String)ExecOnPropMethod_OR.exec(ExecOnPropImpl_setPKTreeMap.impls, leftprops, right.getResultSetValue(rs, columnidx), new Object[]{o2});
+				
+				if(leftprops==null)
+				  {
+					  try {
+						pk.put(realcolumn,JSONHandler.getRTrimColumnValueStringNull(right.getResultSetValue(rs, columnidx)));
+					} catch (Exception e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					  continue;
+				  }
+				  String value=null;
+				  if(leftprops.indexOf("chinese")!=-1)
+				  {
+					  try {
+						  byte []bs = rs.getBytes(rsrealcolumn);
+						  if(bs!=null)
+							  value = new String(rs.getBytes(rsrealcolumn),"ms950");
+						  else
+							  value = new String("${NULL}");
+						//pk.append(new String(rs.getBytes(realcolumn),"ms950"));
+					} catch (UnsupportedEncodingException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				  }
+				  else
+					  value=right.getResultSetValue(rs, columnidx);
+				  
+				  if(leftprops.indexOf("untrim")!=-1)
+				  {
+					  value = JSONHandler.getColumnValueStringNull(value);
+				  }
+				  else
+					  value=JSONHandler.getRTrimColumnValueStringNull(value);
+				
+				pk.put(realcolumn, value);
+		  }
+		  return pk;
+	}
+	public TreeMap<String, Object> subcompare_setPKShowTreeMap(List<String> pk_pks, List<String> rs_pks, int pkleftright, int rsleftright, ResultSet rs) throws SQLException
+	{
+		TreeMap<String, Object> pk = new TreeMap<String, Object>();
+		  for(int i=0;i<pk_pks.size();i++)
+		  {
+			  String pk_pkrealcolumn = genericCmpDataUtil.getRealColumn(pk_pks.get(i));
+			  String rs_pkrealcolumn = genericCmpDataUtil.getRealColumn(rs_pks.get(i));
+				
+				ColumnMeta rscmp = genericCmpDataUtil.findCmpPair(rsleftright, rs_pkrealcolumn);
+				ColumnMeta pkcmp = genericCmpDataUtil.findCmpPair(pkleftright, pk_pkrealcolumn);
+
+				if(rscmp==null)
+				{
+					//throw exception
+					System.out.println("rscmp null:"+rsleftright+" "+rs_pkrealcolumn);;
+				}
+				String rsrealcolumn = rscmp.getName();  
+				List<String> leftprops = pkcmp.getProps();
+				int columnidx = rs.findColumn(rsrealcolumn);
+				
+				//byte []o2 = right.getResultSetByte_ignoreException(rs, columnidx);
+				//String value = (String)ExecOnPropMethod_OR.exec(ExecOnPropImpl_setPKShowTreeMap.impls, leftprops, right.getResultSetValue(rs, columnidx), new Object[]{o2});
+				
+				if(leftprops==null)
+				  {
+					  try {
+						pk.put(pk_pkrealcolumn,JSONHandler.getTrimColumnValueString(right.getResultSetValue(rs, columnidx)));
+					} catch (Exception e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+					  continue;
+				  }
+				  String value=null;
+				  if(leftprops.indexOf("chinese")!=-1)
+				  {
+					  try {
+						  byte []bs = rs.getBytes(rsrealcolumn);
+						  if(bs!=null)
+							  value = new String(rs.getBytes(rsrealcolumn),"ms950");
+						  else
+							  value = new String("${NULL}");
+						//pk.append(new String(rs.getBytes(realcolumn),"ms950"));
+					} catch (UnsupportedEncodingException e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
+				  }
+				  else
+					  value=right.getResultSetValue(rs, columnidx);
+				  
+				  if(leftprops.indexOf("untrim")!=-1)
+				  {
+					  value = JSONHandler.getColumnValueString(value);
+				  }
+				  else
+					  value=JSONHandler.getTrimColumnValueString(value);
+				pk.put(pk_pkrealcolumn,value);
+		  }
+		  return pk;
+	}
+	/*
+	public TreeMap<String, Object> subcompare_PKDisplay2TreeMap(List<String> pks, String rs)
+	{
+		TreeMap<String, Object> ret = new TreeMap<String,Object>(String.CASE_INSENSITIVE_ORDER);
+		try {
+			String []rss = rs.split("_");
+			
+			  for(int i=0;i<pks.size();i++)
+			  {
+				  String realcolumn=genericCmpDataUtil.getRealColumn(pks.get(i));
+
+				  ret.put(realcolumn, rss[i]);
+			  }
+		} catch (Exception e) {
+			// TODO Auto-generated catch block
+			System.out.println("err:"+e+" "+rs);
+		}
+		return ret;
+	}*/
+	private TreeMap<String, String> subcompare_getLeftRightValue(CmpPair col, TreeMap<String,Object> leftrs, TreeMap<String,Object> rightrs)
+	{
+		TreeMap<String, String> ret = new TreeMap<String, String>(String.CASE_INSENSITIVE_ORDER);
+		String leftvalue, rightvalue;
+		if((col.getRightcm()!=null && col.getRightcm().toString().startsWith("#Constant")) && (col.getLeftcm()!=null && col.getLeftcm().toString().startsWith("#Constant")))
+		{
+			//throw exception
+		}
+		if((col.getRightcm()!=null && col.getRightcm().toString().startsWith("#Constant")) || (col.getLeftcm()!=null && col.getLeftcm().toString().startsWith("#Constant")))
+		{//常數比對一律把待檢查字串放在left和right, 執行checkvalue時，將呼叫string constant check，會由ref值比對
+			if(!col.getRightcm().toString().startsWith("#Constant"))
+				leftvalue =TreeMapUtil.getString(rightrs.get(col.getRightcm().toString()));
+			else
+				leftvalue =TreeMapUtil.getString(leftrs.get(col.getLeftcm().toString()));
+				
+			rightvalue=leftvalue;
+		}
+		else
+		{//一般比對
+			leftvalue =(col.getLeftcm()==null)?genericCmpDataConstant.CONSTANT_STRING_NULL:TreeMapUtil.getString(leftrs.get(col.getLeftcm().toString()));
+			rightvalue =(col.getRightcm()==null)?genericCmpDataConstant.CONSTANT_STRING_NULL:TreeMapUtil.getString(rightrs.get(col.getRightcm().toString()));
+		}
+		
+		ret.put("leftvalue", leftvalue);
+		ret.put("rightvalue", rightvalue);
+		return ret;
+	}
+	private boolean subcompare_checkColumnValue(CmpTask task, String pk, TreeMap<String,Object> rs, TreeMap<String,Object> rsinfodata) throws Exception
+	{
+		boolean ret=true;
+		int cntcol=0;
+		int wrongrowno=-1;
+		for(CmpPair col:CmpPair.getlcmppair())
+		{
+			if(!col.init || !col.enableCmp)//不用比
+				continue;
+			List<String> props = col.getProps(genericCmpDataConstant.CmpRightElm);
+			if(col.getCheckColumnValueScript()!=null)
+			{
+				List<Object> refs = new ArrayList<Object>();
+				List<TreeMap<String,Object>> thisrow = new ArrayList<TreeMap<String,Object>>();
+				thisrow.add(rs);
+				thisrow.add(rsinfodata);
+				refs.add(thisrow);//加入thisrow left
+				try {				
+					if(col.getCheckColumnValueScriptrefs() != null)
+					{
+						if(!col.lazyinitrefs)
+							refs.addAll(CheckScript.generateRef(GlobalVariable.getSessionVariable(), thisrow, col.getCheckColumnValueScriptrefs()));//加入設定檔定義的ref
+						else
+							refs.add(col.getCheckColumnValueScriptrefs());
+					}
+					String leftvalue=null;
+					String rightvalue=null;
+					if(props==null || !props.contains("chinese"))
+					{
+						TreeMap<String, String> leftrightvalue = subcompare_getLeftRightValue(col, rs, rsinfodata);
+						leftvalue = leftrightvalue.get("leftvalue");
+						rightvalue = leftrightvalue.get("rightvalue");
+						Integer runid = threadrunidmap.get(Long.toString(Thread.currentThread().getId(), 10));
+						col.clearColumnValueScriptRst(runid);
+						//if(!JSONHandler.cmpColumnValueString(rs.get(col.rightcm.toString()),right))
+						if(!col.getCheckColumnValueScript().cmpvalue(leftvalue,rightvalue,refs.toArray(), runid, col.getcmpLogicvars(),null))
+						{
+							String refleftvalue, refrightvalue;
+							col.addErrcnt();
+							if(col.getCheckColumnValueScriptRst(runid, genericCmpDataConstant.CmpLeftElm).length()==0)
+								refleftvalue= JSONHandler.getColumnValueString(leftvalue);
+							else
+								refleftvalue=JSONHandler.getColumnValueString(col.getCheckColumnValueScriptRst(runid, genericCmpDataConstant.CmpLeftElm));
+							
+							if(col.getCheckColumnValueScriptRst(runid, genericCmpDataConstant.CmpRightElm).length()==0)
+								refrightvalue= JSONHandler.getColumnValueString(rightvalue);
+							else
+								refrightvalue=JSONHandler.getColumnValueString(col.getCheckColumnValueScriptRst(runid, genericCmpDataConstant.CmpRightElm));
+							synchronized(errpk)
+							{
+								if(logformat != null)
+								{
+									ScriptAPI.errpk_report(rs, rsinfodata, left.pk, right.pk, right.getTable(), CmpContext.ERRTYPE_CASE1, col, refleftvalue, refrightvalue, logformatsplitter, pkdisplay);
+								}
+								else
+								{
+									ScriptAPI.errpk_println("pk:"+pk+" columninfo:"+col+", leftvalue:"+refleftvalue+" rightvalue:"+refrightvalue);
+								}
+							}
+							wrongrowno = ScriptAPI.writeRegTable(task.RstWritingRst, task.RstWritingRaw, wrongrowno, cntcol, format, "case1b", (col.getLeftcm()==null)?genericCmpDataConstant.CONSTANT_STRING_NULL:col.getLeftcm().toString(), (col.getRightcm()==null)?genericCmpDataConstant.CONSTANT_STRING_NULL:col.getRightcm().toString(), left.pk, right.pk, rs, rsinfodata,refleftvalue, refrightvalue);
+							ret = false;
+							cntcol++;
+						} 
+					}
+					else
+					{//chinese屬性的欄位，無法自訂script
+						Integer runid = threadrunidmap.get(Long.toString(Thread.currentThread().getId(), 10));
+						col.clearColumnValueScriptRst(runid);
+						if(!col.getCheckColumnValueScript().cmpvalue(TreeMapUtil.getBytes(rs.get(col.getLeftcm().toString()),GlobalVariable.getLeftCharset()), TreeMapUtil.getBytes(rsinfodata.get(col.getLeftcm().toString()),GlobalVariable.getRightCharset()),refs.toArray(), runid, col.getcmpLogicvars(),null))
+						//if(!CmpLogicDefaultImpl.ByteArrayEqual.cmpvalue(TreeMapUtil.getBytes(rs.get(col.leftcm.toString())), TreeMapUtil.getBytes(rsinfodata.get(col.rightcm.toString())),refs.toArray(),col.logicvars,null))
+						//if(!Arrays.equals(TreeMapUtil.getBytes(rs.get(col.leftcm.toString())), TreeMapUtil.getBytes(rsinfodata.get(col.rightcm.toString()))))
+						{
+							String refleftvalue, refrightvalue;
+							col.addErrcnt();
+							if(col.getCheckColumnValueScriptRst(runid, genericCmpDataConstant.CmpLeftElm).length()==0)
+								refleftvalue= JSONHandler.getColumnValueString((String)rs.get(col.getLeftcm().toString()));
+							else
+								refleftvalue=JSONHandler.getColumnValueString(col.getCheckColumnValueScriptRst(runid, genericCmpDataConstant.CmpLeftElm));
+							
+							if(col.getCheckColumnValueScriptRst(runid, genericCmpDataConstant.CmpRightElm).length()==0)
+								refrightvalue= JSONHandler.getColumnValueString(new String(TreeMapUtil.getBytes(rsinfodata.get(col.getRightcm().toString()),GlobalVariable.getRightCharset())));
+							else
+								refrightvalue=JSONHandler.getColumnValueString(col.getCheckColumnValueScriptRst(runid, genericCmpDataConstant.CmpRightElm));
+							
+							synchronized(errpk)
+							{
+								if(logformat != null)
+								{
+									ScriptAPI.errpk_report(rs, rsinfodata, left.pk, right.pk, right.getTable(), CmpContext.ERRTYPE_CASE1, col, refleftvalue, refrightvalue, logformatsplitter, pkdisplay);
+								}
+								else
+								{
+									ScriptAPI.errpk_println("pk:"+pk+" columninfo:"+col+", leftvalue:"+refleftvalue+" rightvalue:"+refrightvalue);
+								}
+							}
+							
+							wrongrowno = ScriptAPI.writeRegTable(task.RstWritingRst, task.RstWritingRaw, wrongrowno, cntcol, format, "case1b", col.getLeftcm().toString(), col.getRightcm().toString(), left.pk, right.pk, rs, rsinfodata,refleftvalue, refrightvalue);
+							ret = false;
+							cntcol++;
+						}
+					}
+				} catch (Exception e) {
+					// TODO Auto-generated catch block
+					if(e instanceof NullPointerException)
+					{
+						System.out.println("col.logic:"+col.getCheckColumnValueScript());
+						System.out.println("refs:"+refs);
+						System.out.println("col:"+col);
+					}
+					else
+					{
+						System.out.println("column:"+col.toString()+" scripting error");
+					}
+					e.printStackTrace();
+				}
+			}
+		}
+		return ret;
+	}
+	private boolean subcompare_checkPK(List<KeyTransformTreeMap> lktt, TreeMap<String,Object> rs, int leftright, ResultSet rsinfo) throws SQLException
+	{
+		TreeMap<String,Object> tranformrs = null;
+		for(KeyTransformTreeMap ktt : lktt)
+		{
+			tranformrs = ktt.getNewData(rs);
+			if(tranformrs != null)
+			{
+				break;
+			}
+		}
+		if(tranformrs == null)
+		{
+			tranformrs=rs;
+		}
+		
+		for(int i=0;i<left.pk.size();i++)
+		{//exclude a.
+			String lrealcolumn = genericCmpDataUtil.getRealColumn(left.pk.get(i));
+			String rrealcolumn = genericCmpDataUtil.getRealColumn(right.pk.get(i));
+
+			ColumnMeta cmp = genericCmpDataUtil.findCmpPair(leftright, rrealcolumn);
+			  if(cmp==null)
+			  {
+				  //throw exception
+			  }
+			  List<String> props = cmp.getProps();
+			  int columnidx = rsinfo.findColumn(rrealcolumn);
+			  byte []o2 = right.getResultSetByte_ignoreException(rsinfo, columnidx);
+			  boolean ret = (boolean)ExecOnPropMethod_AND.exec(ExecOnPropImpl_checkPK.impls, props, new Object[]{tranformrs.get(lrealcolumn), right.getResultSetValue(rsinfo, columnidx), o2});
+			  if(!ret)
+				  return false;
+		}
+		return true;
+	}
+	
+	private TreeMap<String, Object> ResultSet2TreeMap(List<CmpPair> lcm, int TreeMapKeyleftright, int ResultSetleftright, ResultSet rs) throws SQLException
+	{
+		TreeMap<String, Object> ret = new TreeMap<String, Object>(String.CASE_INSENSITIVE_ORDER);
+		if(ResultSetleftright != TreeMapKeyleftright)
+		{
+			for(CmpPair cp : lcm)
+			{
+				String ResultSetname=null;
+				String TreeMapname=null;
+
+				if(ResultSetleftright == genericCmpDataConstant.CmpLeftElm)
+				{
+					ResultSetname=cp.getLeftcm().toString();
+				}
+				else
+				{
+					ResultSetname=cp.getRightcm().toString();
+				}
+				if(TreeMapKeyleftright == genericCmpDataConstant.CmpLeftElm)
+				{
+					TreeMapname=cp.getLeftcm().toString();
+				}
+				else
+				{
+					TreeMapname=cp.getRightcm().toString();
+				}
+				if(ResultSetname.startsWith("#Constant") || TreeMapname.startsWith("#Constant"))
+					continue;
+				
+				List<String> props = cp.getProps(ResultSetleftright);
+				int columnidx = rs.findColumn(ResultSetname);
+				Cmpsource src = (ResultSetleftright==genericCmpDataConstant.CmpLeftElm)? left : right;
+				String o1 = src.getResultSetValue(rs, columnidx);
+				byte []o2 = src.getResultSetByte_ignoreException(rs, columnidx);
+				ret.put(TreeMapname, ExecOnPropMethod_AND.exec(ExecOnPropImpl_ResultSet2TreeMap.impls, props, new Object[]{o1, o2}));
+			}
+		}
+		else
+		{
+			int columnsize = (TreeMapKeyleftright == genericCmpDataConstant.CmpLeftElm)?ColumnMeta.getLeftColumnSize():ColumnMeta.getRightColumnSize();
+			for(int i=0; i<columnsize; i++)
+			{
+				ColumnMeta meta = (TreeMapKeyleftright == genericCmpDataConstant.CmpLeftElm)?ColumnMeta.getLeftColumn(i):ColumnMeta.getRightColumn(i);
+				if(!meta.getName().startsWith("#Constant"))
+				{
+					int columnidx = rs.findColumn(meta.getName());
+					Cmpsource src = (ResultSetleftright==genericCmpDataConstant.CmpLeftElm)? left : right;
+					String o1 = src.getResultSetValue(rs, columnidx);
+					byte []o2 = src.getResultSetByte_ignoreException(rs, columnidx);
+					ret.put(meta.getName(), ExecOnPropMethod_AND.exec(ExecOnPropImpl_ResultSet2TreeMap.impls, meta.getProps(), new Object[]{o1, o2}));
+				}
+			}
+		}
+		return ret;
+	}
+	@SuppressWarnings("unchecked")
+	public String checkDuplicate(String leftsql, final List<String> lpk, final TreeMap<String, Object> leftrs)
+	{
+		SQLStatement leftstmt = null;
+		//if(genericCmpData.left.getTable().contains("serviceM"))
+		if(left.checkduplicatesql!=null)
+		{
+			leftstmt = Parser.parseStatement(left.checkduplicatesql);
+		}
+		else if(left.sqlcountcolumn!=null)
+		{
+			/*
+			leftsql=leftsql.replace("distinct t.EQUIPNO,NVL(length(replace(substr(ATTACHCDRS,-3),'N',''))) as cnt, 255 as ssno,EQUIPEFFDATE as SERVEFFDATE,TO_DATE('2100-01-01','YYYY-MM-DD') as SERVDUEDATE",
+					                   "NVL(length(replace(substr(ATTACHCDRS, -3), 'N', '')),0) AS cnt");
+			*/
+			leftstmt = Parser.parseStatement(leftsql);
+			Builder.buildSum(leftstmt, left.sqlcountcolumn);
+		}
+		else
+		{
+			leftstmt = Parser.parseStatement(leftsql);
+			Builder.buildCount(leftstmt, "cnt");
+		}
+		
+		List<TreeMap<String, Object>> lLeftrs = new ArrayList<TreeMap<String, Object>>();
+		lLeftrs.add(leftrs);
+		StringBuffer sb = null;
+		
+		if(left.duplicatepk==null)
+			sb = subcompare_setPKWhere(lpk, genericCmpDataConstant.CmpLeftElm,1, lLeftrs.size());
+		else
+			sb = subcompare_setPKWhere(left.duplicatepk, genericCmpDataConstant.CmpLeftElm,1, lLeftrs.size());
+		
+		Builder.addWhere(leftstmt, Builder.OP_AND, sb.toString());
+		
+		if(left.usefirstunionselect)
+			leftstmt = Builder.getFirstUnionSelect(leftstmt);
+		
+		StringBuffer sba = leftstmt.getStringBuffer();
+		
+		TreeMap<String,String> retleft = null;
+	  try {
+		  if(dbgmode==1)
+				System.out.println("checkduplicate:"+sba.toString());
+		  
+		  /*	
+		  retleft = DSManager.getInstance().getobject(left.dbconn, sba.toString(), TreeMap.class,
+					new InputPstmt(){
+				
+						@Override
+						public void PstmtMapping(PreparedStatement pstmt) throws SQLException {
+							System.out.println("time11_835:"+Thread.currentThread().getId()+" "+new Date().getTime()+" "+leftrs);
+							if(left.duplicatepk==null)
+								setPstmt(pstmt, genericCmpDataConstant.CmpLeftElm, lpk, leftrs, 0);
+							else
+								setPstmt(pstmt, genericCmpDataConstant.CmpLeftElm, left.duplicatepk, leftrs, 0);
+							System.out.println("time11_836:"+Thread.currentThread().getId()+" "+new Date().getTime());
+						}
+		
+						@Override
+						public <T> T DB2ObjectMapping(ResultSet rs) throws SQLException {
+							TreeMap<String,String> r = new TreeMap<String,String>(String.CASE_INSENSITIVE_ORDER);System.out.println("time11_837:"+Thread.currentThread().getId()+" "+new Date().getTime());
+							ResultSetMetaData rsmeta = rs.getMetaData();
+				        	for(int j=1; j<=rsmeta.getColumnCount(); j++)
+				        	{
+				        		r.put(rsmeta.getColumnLabel(j).toLowerCase(), JSONHandler.getTrimColumnValueString(left.getResultSetValue(rs, j)));
+				        	}System.out.println("time11_838:"+Thread.currentThread().getId()+" "+new Date().getTime());
+							return (T)r;
+						}
+						
+					});
+					*/
+		  Connection dupconn = (Connection)DSManager.getInstance().getConn(GlobalVariable.getLeftCmpsource().dbconn);//.getConn(left.dbconn);
+		  PreparedStatement pstmt = dupconn.prepareStatement(sba.toString());
+		  if(left.duplicatepk==null)
+		  {
+			  setPstmt(pstmt, genericCmpDataConstant.CmpLeftElm, lpk, leftrs, 0);
+		  }
+		  else
+		  {
+			  setPstmt(pstmt, genericCmpDataConstant.CmpLeftElm, left.duplicatepk, leftrs, 0);
+		  }
+		  ResultSet duprs = pstmt.executeQuery();
+		  if(duprs.next())
+		  {		
+			  retleft = new TreeMap<String,String>(String.CASE_INSENSITIVE_ORDER);
+			  retleft.put("cnt", duprs.getString("cnt"));
+		  }
+		  duprs.close();
+		  pstmt.close();
+		} catch(com.steve.db.data.manager.DBManagerRuntimeException e) {
+			// TODO Auto-generated catch block
+			genericCmpDataUtil.showTreeMap(leftrs);
+			throw e;
+		} catch (SQLException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+
+		  if(retleft == null)
+		  {
+			  ScriptAPI.errpk_println("checkDuplicate get null:"+sba.toString());
+			  return "0";
+		  }
+		  else
+			  return retleft.get("cnt");
+	}
+	/*
+	public void setPstmt(PreparedStatement pstmtinfo, int leftrightelm, List<String> pk, List<TreeMap<String, Object>> lrs) throws SQLException
+	{
+		int cntlrs=0;
+		  for(TreeMap<String,Object> rs : lrs)
+		  {
+			  //String pk=rs.get("pk");
+			  setPstmt(pstmtinfo, leftrightelm, pk, rs, cntlrs);
+			  cntlrs++;
+		  }
+	}
+	*/
+	private void setPstmt_internal(PreparedStatement pstmtinfo, int leftrightelm, List<String> pk, TreeMap<String, Object> rs, int cntlrs) throws SQLException
+	{
+		Object objs = new Object[6];
+		for(int i=1;i<=pk.size();i++)
+		  {
+			  String realcolumn = genericCmpDataUtil.getRealColumn(pk.get(i-1));
+			  
+			  ColumnMeta cmp = genericCmpDataUtil.findCmpPair(leftrightelm, realcolumn);
+			  String charset = (leftrightelm==genericCmpDataConstant.CmpLeftElm)?GlobalVariable.getLeftCharset():GlobalVariable.getRightCharset();
+			  if(cmp==null)
+			  {
+				  //throw exception
+			  }
+
+			  //String  pstmtinfoval = JSONHandler.rollbackColumnValueString(rs.get(realcolumn));
+			  List<String> props = cmp.getProps();
+		  
+			  ExecOnPropMethod_AND.exec(ExecOnPropImpl_setPstmt.impls, props, new Object[]{rs.get(realcolumn), pstmtinfo, pk, cntlrs, i, charset, dbgmode});
+			  
+
+			  /*
+			  if(props==null)
+			  {
+				  String  pstmtinfoval = TreeMapUtil.getString(rs.get(realcolumn));
+				  if(dbgmode==1)
+						System.out.println("setPstmt_internal:"+pstmtinfoval);
+				  pstmtinfo.setString(pk.size()*(cntlrs)+i,pstmtinfoval);
+				  //pstmtinfo.setInt(pk.size()*(cntlrs)+i,Integer.parseInt(pstmtinfoval));
+			  }
+			  else if(props.contains("chinese"))
+			  {
+				  Object val = rs.get(realcolumn);
+				  if(val!=null)
+					  pstmtinfo.setBytes(pk.size()*(cntlrs)+i,TreeMapUtil.getBytes(val, charset));
+				  else
+					  pstmtinfo.setBytes(pk.size()*(cntlrs)+i,TreeMapUtil.getBytes("${NULL}", charset));
+			  }
+			  else
+			  {
+				  String  pstmtinfoval = JSONHandler.rollbackColumnValueString(TreeMapUtil.getString(rs.get(realcolumn)));
+				  if(dbgmode==1)
+						System.out.println("setPstmt_internal:"+pstmtinfoval);
+				  pstmtinfo.setString(pk.size()*(cntlrs)+i,pstmtinfoval);
+			  }	*/
+		  
+		  }
+		  
+	}
+	
+	public void setPstmt(PreparedStatement pstmtinfo, int leftrightelm, List<String> pk, TreeMap<String, Object> rs, int cntlrs) throws SQLException
+	{
+		setPstmt_internal(pstmtinfo, leftrightelm, pk, rs, cntlrs);
+	}
+	
+	private Object subcompare_getPstmtValue(CmpPair cp, TreeMap<String,Object> rs, Object keyvalue)
+	{
+		//Object ret = keyvalue;
+		Object ret=null;
+		if(cp.getKeytransformScript() != null)
+		{
+			try {
+				List<Object> refs = new ArrayList<Object>();
+				List<TreeMap<String,Object>> thisrow = new ArrayList<TreeMap<String,Object>>();
+				thisrow.add(rs);
+				//thisrow.add(null);
+				refs.add(thisrow);//加入thisrow left		
+				if(cp.getKeytransformScriptrefs()!= null)
+				{
+					refs.addAll(CheckScript.generateRef(GlobalVariable.getSessionVariable(), thisrow, cp.getKeytransformScriptrefs()));//加入設定檔定義的ref
+				}
+				
+				ret = (Object)cp.getKeytransformScript()
+						.InvokeCheckScript( 
+							new Object[] { keyvalue, refs.toArray()}
+						);
+			} catch (NoSuchMethodException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			} catch (ScriptException e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
+			return ret;
+		}
+		return keyvalue;
+	}
+	
+	private void subcompare_rsnext(CmpTask task, List<TreeMap<String,Object>> checklrs, ResultSet rsinfo, List<KeyTransformTreeMap> lktt) throws SQLException, Exception
+	{
+		int rotatelrs=0;
+		
+		while(rsinfo.next() )
+		  {
+			  TreeMap<String,Object> rs = null;
+			  TreeMap<String,Object> rsinfodata = ResultSet2TreeMap(CmpPair.getlcmppair(), genericCmpDataConstant.CmpRightElm, genericCmpDataConstant.CmpRightElm, rsinfo);
+			  if(dbgmode==1)
+			  {
+				  System.out.print("get one:");
+				  genericCmpDataUtil.showTreeMap(rsinfodata);
+			  }
+			  if(rotatelrs<checklrs.size())
+			  {
+				  rs = checklrs.get(rotatelrs++);
+				  if(rs == null)
+					  break;
+			  }
+			  else
+			  {//最後一筆為duplicate的狀況，要跳出迴圈
+				  
+				  //check duplicate
+				  task.rightnowinfo=subcompare_setPKDisplay(right.pk, genericCmpDataConstant.CmpRightElm, rsinfo);
+				  
+				  if(task.rightnowinfo.toString().equals(task.rightprevinfo.toString()))
+				  {//rs is null
+					  rs= new TreeMap<String, Object>(String.CASE_INSENSITIVE_ORDER);
+					  int rpkcnt=0;
+					  for(String pk:left.pk)
+					  {
+						  String realcolumn = genericCmpDataUtil.getRealColumn(pk);
+
+						  rs.put(realcolumn,rsinfodata.get(right.pk.get(rpkcnt++)));
+					  }
+				  }
+				  break;
+				  
+			  }
+			  task.leftnowinfo = subcompare_setPKDisplay(left.pk,rs);
+			  
+			  task.rightnowinfo=subcompare_setPKDisplay(right.pk, genericCmpDataConstant.CmpRightElm, rsinfo);
+			  //check duplicate
+			  
+			  if(task.rightnowinfo.toString().equals(task.rightprevinfo.toString()))
+			  {
+				  //rs和rsinfodata不同
+				  if(!subcompare_checkPK(lktt, rs, genericCmpDataConstant.CmpRightElm, rsinfo))
+				  {
+					  rs= new TreeMap<String, Object>(String.CASE_INSENSITIVE_ORDER);
+					  int rpkcnt=0;
+					  for(String pk:left.pk)
+					  {
+						  String realcolumn=genericCmpDataUtil.getRealColumn(pk);
+
+						  rs.put(realcolumn,rsinfodata.get(right.pk.get(rpkcnt++)));
+					  }
+				  }
+				  if(!task.leftnowinfo.toString().equals(task.leftprevinfo.toString()))
+				  {
+					  task.leftprevinfo=task.leftnowinfo;
+				  }
+				  else
+					  checklrs.remove(rs);
+				  rotatelrs=0;
+				  continue;
+			  }
+
+			  task.rightprevinfo=task.rightnowinfo;
+			  task.leftprevinfo=task.leftnowinfo;
+			  
+			  StringBuffer pk = task.leftnowinfo;
+			  
+			  //check pk
+			  boolean checkpk;
+			  while(((checkpk=subcompare_checkPK(lktt, rs, genericCmpDataConstant.CmpRightElm, rsinfo))==false))//&& rotatelrs<checklrs.size())
+			  {//找出左右兩邊相互對應pk的資料來做比較
+				  if(rotatelrs>=checklrs.size())
+					  break;
+				  rs = checklrs.get(rotatelrs++);
+				  pk = subcompare_setPKDisplay(left.pk,rs);
+			  }
+			  if(!checkpk)
+			  {//右邊資料重複pk
+				  ScriptAPI.errpk_println("right data could be duplicated: pk:"+subcompare_setPKDisplay(right.pk, genericCmpDataConstant.CmpRightElm, rsinfo));
+				  rotatelrs=0;
+				  continue;
+			  }
+			  else
+			  {//get one, 刪除checklrs中對應的資料
+				  //List<TreeMap<String,Object>> removers = new ArrayList<TreeMap<String,Object>>();
+				  //removers.add(rs);
+				  checklrs.remove(rs);/*
+				  if(right.sqlcountcolumn!=null)
+					{
+						int rscnt = rsinfo.getInt(right.sqlcountcolumn);
+						task.updateRightcnttable(right.pk, rsinfodata,rscnt);
+					}
+					else*/
+						task.updateRightcnttable(right.pk, rsinfodata,1);
+			  }
+			  rotatelrs=0;
+			  //(List<CmpPair> lcm, int leftright, ResultSet rs)
+			 
+			  //check value
+			  if(!task.countrightmode && !subcompare_checkColumnValue(task, pk.toString(), rs, rsinfodata))
+			  {
+				  //ScriptAPI.errpk_println(pk+":content err");
+				  
+				  task.nowsqlcmpproblemcnt_plus();
+			  }
+			  rsinfodata = null;
+			  if(resultsetsize>0)
+				  Thread.sleep(resultsetsize);
+		  }
+	}
+	
+	private void subcompare_checkCase2(CmpTask task, List<TreeMap<String,Object>> checklrs) throws Exception
+	{
+		for(TreeMap<String,Object> rs : checklrs)
+		  {
+			  if(case2checkScript != null)
+			  {
+				  List<Object> refs = new ArrayList<Object>();
+					List<TreeMap<String,Object>> thisrow = new ArrayList<TreeMap<String,Object>>();
+					thisrow.add(rs);
+					//thisrow.add(null);
+					refs.add(thisrow);//加入thisrow left		
+						if(case2checkScript.getCheckscriptrefs() != null)
+						{
+							if(!case2lazyInit)
+								refs.addAll(CheckScript.generateRef(GlobalVariable.getSessionVariable(), thisrow, case2checkScript.getCheckscriptrefs()));//加入設定檔定義的ref
+							else
+								refs.add(case2checkScript.getCheckscriptrefs());
+						}
+				  
+					boolean ret = (Boolean)case2checkScript.InvokeCheckScript( new Object[] { refs.toArray()});
+					if(!ret)
+					{
+						  StringBuffer pk = subcompare_setPKDisplay(left.pk,rs);
+						  synchronized(errpk)
+						  {
+							  if(!task.countrightmode)
+							  {
+								  if(logformat != null)
+								  {
+									  ScriptAPI.errpk_report(rs, null, left.pk, null, right.getTable(), CmpContext.ERRTYPE_CASE2, null, logformatsplitter, pkdisplay);
+								  }
+								  else
+								  {
+									  ScriptAPI.errpk_println("Left find no right ref data: pk:"+pk);
+								  }
+							  }
+							  
+						  }
+						  ScriptAPI.writeRegTable(task.RstWritingRst, task.RstWritingRaw, -1, -1, format, "case2", null, null, left.pk, right.pk, rs, null, "", "");
+					}
+					else
+					{
+						//StringBuffer pk = subcompare_setPKDisplay(left.pk,rs);
+					    //ScriptAPI.errpk_println("Left find no right ref data but recheck script ok: pk:"+pk);
+					    
+					    if(left.sqlcountcolumn!=null)
+						  {
+							  int rscnt = Integer.parseInt((String)rs.get(left.sqlcountcolumn));
+							  task.nowsqlfindnorightrechckscripcnt_plus(rscnt);
+						  }
+						  else
+							  task.nowsqlfindnorightrechckscripcnt_plus();
+					}
+				}
+			  else
+			  {
+				  StringBuffer pk = subcompare_setPKDisplay(left.pk,rs);
+				  synchronized(errpk)
+				  {
+					  if(!task.countrightmode)
+					  {
+						  if(logformat != null)
+						  {
+							  ScriptAPI.errpk_report(rs, null, left.pk, null, right.getTable(), CmpContext.ERRTYPE_CASE2, null, logformatsplitter, pkdisplay);
+						  }
+						  else
+						  {
+							  ScriptAPI.errpk_println("Left find no right ref data: pk:"+pk);
+						  }
+					  }
+				  }
+				  ScriptAPI.writeRegTable(task.RstWritingRst, task.RstWritingRaw, -1, -1, format, "case2", null, null, left.pk, right.pk, rs, null, "", "");
+			  }
+			  if(left.sqlcountcolumn!=null)
+			  {
+				  int rscnt = Integer.parseInt((String)rs.get(left.sqlcountcolumn));
+				  task.nowsqlfindnorightcnt_plus(rscnt);
+			  }
+			  else
+				  task.nowsqlfindnorightcnt_plus();
+		  }
+	}
+	
+	public void subcompare(CmpTask task, Connection conn, Set<TreeMap<String,Object>> lrs, int lmt)
+	{
+		if(lrs.size()==0)
+			return;
+		
+		task.hashSqlStatement.buildPKWhere(lrs.size());
+		SQLStatement stmt = task.hashSqlStatement.getStmt();
+		  
+		List<KeyTransformTreeMap> lktt = new ArrayList<KeyTransformTreeMap>();
+
+		  PreparedStatement pstmtinfo = null;
+		  try {
+			  pstmtinfo = conn.prepareStatement(stmt.getSQL());
+			  int cntlrs=0;
+			  if(dbgmode==1)System.out.println("lrs:"+lrs);
+			  for(TreeMap<String,Object> rs : lrs)
+			  {
+				  KeyTransformTreeMap ktt = new KeyTransformTreeMap(rs);
+				  lktt.add(ktt);
+				  TreeMap<String,Object> newdata = new TreeMap<String,Object>();
+				  //String pk=rs.get("pk");
+				  for(int i=1;i<=left.pk.size();i++)
+				  {
+					  String realcolumn = genericCmpDataUtil.getRealColumn(left.pk.get(i-1));
+					  
+					  CmpPair cp = genericCmpDataUtil.findCmpPair(realcolumn);//若key script功能啟動，key要寫在col最前面，確保會抓到正確的keytransform script
+					  if(cp==null)
+					  {
+						  //throw exception
+					  }
+					  
+					  //String  pstmtinfoval = JSONHandler.rollbackColumnValueString(rs.get(realcolumn));
+					  List<String> props = cp.getProps(genericCmpDataConstant.CmpRightElm);
+					  if(props==null || !(props.contains("chinese")||props.contains("multibytes")))
+					  {
+						  String  pstmtinfoval = TreeMapUtil.getString(rs.get(realcolumn));
+						  pstmtinfoval = (String)subcompare_getPstmtValue(cp, rs, pstmtinfoval);
+						  newdata.put(realcolumn, pstmtinfoval);
+						  if(dbgmode==1)System.out.println("("+pstmtinfoval+")");
+						  pstmtinfo.setString(left.pk.size()*(cntlrs)+i,pstmtinfoval);
+					  }
+					  else if(props.contains("chinese")||props.contains("multibytes"))
+					  {
+						  byte []bs = TreeMapUtil.getBytes(rs.get(realcolumn), GlobalVariable.getLeftCharset());
+						  byte []nbs = genericCmpDataUtil.TranscodeCharset(bs, GlobalVariable.getLeftCharset(), GlobalVariable.getRightCharset());
+						  byte []newbs = (byte [])subcompare_getPstmtValue(cp, rs, nbs);
+						  newdata.put(realcolumn, newbs);
+						  if(dbgmode==1){System.out.print(cp.getLeftcm().toString()+":");genericCmpDataUtil.printbyte(nbs);}
+						  pstmtinfo.setBytes(left.pk.size()*(cntlrs)+i, newbs);
+					  }
+				  }
+				  ktt.setNewData(newdata);
+				  cntlrs++;
+			  }
+			  
+			  //setPstmt(pstmtinfo, CmpRightElm, rpk, lrs);
+			  pstmtinfo.setFetchSize(GlobalVariable.getFetchsize());//System.out.println("time21:"+new Date().getTime());System.out.flush();
+			  pstmtinfo.setQueryTimeout(1200);
+			  ResultSet rsinfo = pstmtinfo.executeQuery();
+			
+			  //checklrs用來確認右邊的資料是否都有被比到
+			  List<TreeMap<String,Object>> checklrs = new ArrayList<TreeMap<String,Object>>();
+			  checklrs.addAll(lrs);
+
+			  subcompare_rsnext(task, checklrs, rsinfo, lktt);
+
+			  if(dbgmode==1)
+			  {
+				  System.out.println("checklrs:"+checklrs);
+			  }
+			  if(!task.countrightmode && checklrs.size()!=0)
+			  {//檢查checklrs中是否有沒被比到的資料
+				  subcompare_checkCase2(task, checklrs);
+			  }
+			  
+			  rsinfo.close();
+			  pstmtinfo.close();
+			  System.out.flush();
+		  }
+		  catch (genericCmpDataException e)
+		  {
+			  throw e;
+		  }
+		  catch (Exception e) {
+				// TODO Auto-generated catch block
+			  System.out.println(stmt+"  "+lrs.size());
+			  ScriptAPI.errpk_println(e.toString()+" redo task:"+stmt);
+			  StackTraceElement[] st = e.getStackTrace();
+			  for(StackTraceElement ste : st)
+			  {
+				  ScriptAPI.errpk_println(ste.toString());
+			  }
+			e.printStackTrace();
+
+			if(e instanceof SQLException)
+				throw new genericCmpDataException("cmpdata002","SQLconnection");
+		}
+		  finally
+		  {
+			  task.hashSqlStatement.cleanPKWhere();
+		  }
+	}
+}
