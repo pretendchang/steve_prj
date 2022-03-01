@@ -13,7 +13,7 @@
 <script src="jquery.tmpl.min.js"></script>
 <!--<script src="../jquery/report-validity.umd.js"></script>-->
 <body>
-<form name=form1 id=form1><input type=submit>
+<form name=form1 id=form1>
 <input type=text name=text1 id=text1 value=1a placeholder='46001' attr='master' attr='ch' pattern='^[0-9]{1,11}([,.][0-9]{1,3})?$' required> 
 <input type=text name=text2 id=text2 value=1b placeholder='46001' attr='master' attr='ch' pattern='^[0-9]{1,11}([,.][0-9]{1,3})?$' required readonly> 
 <table id=detail>
@@ -27,7 +27,8 @@
 </tr>
 </script>
 <label for="text1" ></label>
-<input type=button onclick='test()'>
+<input type=button value='loading' onclick='loading()'>
+<input type=button value='validate_sendout' onclick='validate_sendout()'>
 <style>
 .errorinput{
     border: 2px solid red;
@@ -49,7 +50,8 @@ var testvalidpage = (function testvalid()
 	function action()
 	{//master detail validdate value and then sendout
 		this.__proto__=_page;
-		this.reportValidity(document.form1);
+		if(!this.reportValidity(document.form1))
+			return;
 		var master = this.buildmasterjson("[attr='master']");
 		var detail = this.builddetailjson($('#detail').find('tr'),"[attr='detail']");
 		master['detail']=detail;
@@ -81,9 +83,15 @@ var testvalidpage = (function testvalid()
 	};
 
 })();
-//testvalidpage.__proto__=_page;
-testvalidpage.actiontest();
 
+function loading()
+{
+	testvalidpage.actiontest();
+}
+function validate_sendout()
+{
+	testvalidpage.action();
+}
 </script>
 </form>
 </body>
